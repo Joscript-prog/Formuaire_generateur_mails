@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Générateur de Confirmations de Mission</title>
+  <style>
+    :root{--bg:#0c1220;--card:#101a2b;--line:#1e3350;--text:#e8f0fb;--muted:#9db2cf;--accent:#4f9cff;--ok:#22c55e;}
+    html,body{height:100%}
+    body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+    .wrap{max-width:1100px;margin:28px auto;padding:0 16px}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+    .p16{padding:16px}.p20{padding:20px}
+    .title{font-size:22px;font-weight:700;margin:0 0 6px}
+    .muted{color:var(--muted);font-size:13px}
+    .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:12px}
+    .row{grid-column:span 12}.col6{grid-column:span 6}.col4{grid-column:span 4}.col3{grid-column:span 3}.col2{grid-column:span 2}.col8{grid-column:span 8}
+    label{display:block;font-size:12px;color:var(--muted);margin:8px 0 6px}
+    input,select,textarea{width:100%;background:#0d1728;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px 12px;outline:none}
+    input:focus,select:focus,textarea:focus{border-color:var(--accent)}
+    textarea{min-height:220px;resize:vertical}
+    .actions{display:flex;gap:10px;flex-wrap:wrap}
+    button{background:#13223a;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px 14px;font-weight:600;cursor:pointer}
+    button.primary{background:var(--accent);border-color:#2b6ad6;color:#07162b}
+    button.ok{background:var(--ok);border-color:#157a3a;color:#031b0d}
+    .tag{display:inline-block;padding:4px 8px;border-radius:6px;background:#0e1826;border:1px solid var(--line);font-size:12px;color:#b6c7dd}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card p20" style="margin-bottom:14px;">
+      <div class="title">Générateur de mails – Confirmations de mission</div>
+      <div class="muted">Objet standard : <span class="tag">TRAVAUX BOUYGUES - {TICKET} - MB - {VILLE}</span> · Support : <span class="tag">Jean-Michel – 06 37 43 08 48</span></div>
+    </div>
+
+    <form id="form" class="card p20">
+      <div class="grid">
+        <div class="col6">
+          <label for="type">Type de mission</label>
+          <select id="type">
+            <option value="infra">Travaux – INFRA</option>
+            <option value="rocade">Travaux – ROCADE</option>
+            <option value="infra_rocade">Travaux – INFRA ET ROCADE</option>
+            <option value="audit_baie">AUDIT – BAIE</option>
+            <option value="audit_lien">AUDIT – LIEN</option>
+            <option value="audit_baie_lien">AUDIT – BAIE + LIEN</option>
+          </select>
+        </div>
+        <div class="col3">
+          <label for="hno">HNO ?</label>
+          <select id="hno">
+            <option value="non">Non</option>
+            <option value="oui">Oui</option>
+          </select>
+        </div>
+        <div class="col3"></div>
+
+        <div class="col4">
+          <label for="ticket">Ticket</label>
+          <input id="ticket" placeholder="ex. 535441" />
+        </div>
+        <div class="col4">
+          <label for="ville">Ville (unique)</label>
+          <input id="ville" placeholder="ex. SARREGUEMINES" />
+        </div>
+        <div class="col4">
+          <label for="typologie">Typologie</label>
+          <select id="typologie">
+            <option value="SITE ISOLE">SITE ISOLE</option>
+            <option value="SITE MITOYEN">SITE MITOYEN</option>
+          </select>
+        </div>
+
+        <div class="col4">
+          <label for="lien">Type de lien</label>
+          <input id="lien" value="FTTO" />
+        </div>
+        <div class="col8">
+          <label for="raison">Raison sociale</label>
+          <input id="raison" placeholder="ex. 5118 MARIE BLACHÈRE …" />
+        </div>
+
+        <div class="col4">
+          <label for="date">Date</label>
+          <input id="date" placeholder="ex. 25/08/2025" />
+        </div>
+        <div class="col4">
+          <label for="heure">Heure (optionnel)</label>
+          <input id="heure" placeholder="ex. 09h00" />
+        </div>
+        <div class="col2">
+          <label for="duree">Durée</label>
+          <input id="duree" placeholder="ex. 04H" />
+        </div>
+        <div class="col2">
+          <label for="prix">Prix</label>
+          <input id="prix" placeholder="ex. 200€" />
+        </div>
+
+        <div class="col8">
+          <label for="adresse">Adresse (voie et n°)</label>
+          <input id="adresse" placeholder="ex. 13 Rue …" />
+        </div>
+        <div class="col2">
+          <label for="cp">Code postal</label>
+          <input id="cp" placeholder="ex. 57200" />
+        </div>
+        <div class="col2">
+          <label for="villeAdr">Ville (adresse)</label>
+          <input id="villeAdr" disabled />
+        </div>
+
+        <div class="row">
+          <div class="actions">
+            <button type="button" class="primary" id="btnGenerate">Générer</button>
+            <button type="button" id="copySubject">Copier l'objet</button>
+            <button type="button" id="copyBody">Copier le corps</button>
+            <button type="button" class="ok" id="openEmail">Ouvrir dans le client mail</button>
+          </div>
+        </div>
+      </div>
+    </form>
+
+    <div class="grid" style="margin-top:14px;">
+      <div class="col6">
+        <div class="card p16">
+          <div class="title" style="font-size:18px;">Objet généré</div>
+          <input id="subjectOut" readonly />
+        </div>
+      </div>
+      <div class="col6">
+        <div class="card p16">
+          <div class="title" style="font-size:18px;">Aperçu (HTML)</div>
+          <div id="preview" class="p16" style="background:#0e1826;border:1px solid var(--line);border-radius:10px;min-height:220px;"></div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="card p16">
+          <div class="title" style="font-size:18px;">Corps (texte)</div>
+          <textarea id="bodyOut" readonly></textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function(){
+  const $ = (s)=>document.querySelector(s);
+  const type = $('#type');
+  const hno = $('#hno');
+  const ticket = $('#ticket');
+  const ville = $('#ville');
+  const typologie = $('#typologie');
+  const lien = $('#lien');
+  const raison = $('#raison');
+  const date = $('#date');
+  const heure = $('#heure');
+  const duree = $('#duree');
+  const prix = $('#prix');
+  const adresse = $('#adresse');
+  const cp = $('#cp');
+  const villeAdr = $('#villeAdr');
+  const subjectOut = $('#subjectOut');
+  const bodyOut = $('#bodyOut');
+  const preview = $('#preview');
+
+  // Ville -> ville adresse
+  function syncVille(){ villeAdr.value = ville.value || ''; }
+  ville.addEventListener('input', syncVille); syncVille();
+
+  // ----- Pré-remplissage depuis l'URL -----
+  function prefillFromURL(){
+    const q = new URL(location.href).searchParams;
+    const pick = (id, val) => { const el = document.getElementById(id); if (!el) return; if (val != null && val !== '') el.value = val; };
+    if (q.has('type'))      pick('type', q.get('type'));
+    if (q.has('ticket'))    pick('ticket', q.get('ticket'));
+    if (q.has('date'))      pick('date', q.get('date'));
+    if (q.has('ville'))     pick('ville', q.get('ville'));
+    if (q.has('typologie')) pick('typologie', q.get('typologie'));
+    if (q.has('raison'))    pick('raison', q.get('raison'));
+    if (q.has('lien'))      pick('lien', q.get('lien'));
+    // réplique ville -> villeAdr
+    const ev = new Event('input'); document.getElementById('ville').dispatchEvent(ev);
+  }
+  prefillFromURL();
+  // ----------------------------------------
+
+  function buildSubject(){
+    return `TRAVAUX BOUYGUES - ${ticket.value.trim()} - MB - ${ville.value.trim()}`;
+  }
+  function buildDateHeure(){
+    const d = (date.value||'').trim();
+    const h = (heure.value||'').trim();
+    return h ? `${d} à ${h}` : d;
+  }
+  function assembleAdresse(){
+    return [adresse.value.trim(), cp.value.trim(), ville.value.trim()].filter(Boolean).join(' ');
+  }
+  function htmlIntroTravaux(){
+    const v = escapeHtml(ville.value.trim());
+    return `Je vous joins le PV d’audit, pour l’inter sur le site "<b>MB</b> de <b>${v}</b>".`;
+  }
+  function typeTravauxLabel(){
+    if(type.value==='infra') return 'INFRA';
+    if(type.value==='rocade') return 'ROCADE';
+    if(type.value==='infra_rocade') return 'INFRA ET ROCADE';
+    return '';
+  }
+
+  function buildBody(){
+    const isAudit = type.value.startsWith('audit');
+    const nomSite = `MB de ${ville.value.trim()}`;
+    const dateHeure = buildDateHeure();
+
+    const blocCommun =
+      `Typologie   ${typologie.value}\n\n`+
+      `Lien : ${lien.value}\n\n`+
+      `-  raison sociale : ${raison.value}\n\n`;
+
+    const fin =
+      `Support : Jean-Michel – 06 37 43 08 48\n\n`+
+      `Date et heure : ${dateHeure}\n`+
+      `Durée : ${duree.value}\n`+
+      `Prix : ${prix.value}\n\n`+
+      `Adresse de l’intervention : ${assembleAdresse()}\n\n`+
+      `Je reste à votre disposition.\n\nCdt,`;
+
+    if(isAudit){
+      const auditLabel =
+        (type.value==='audit_baie') ? 'AUDIT BAIE' :
+        (type.value==='audit_lien') ? 'AUDIT LIEN' :
+        'AUDIT BAIE / LIEN';
+
+      return (
+        `Bonjour,\n`+
+        `Ce mail pour vous confirmer votre inter sur le site "${nomSite}".\n\n`+
+        `TRAVAUX À RÉALISER : ${auditLabel}\n`+
+        (hno.value==='oui' ? `Horaire en HNO de 6h à 8h du matin\n\n` : `\n`) +
+        `${blocCommun}`+
+        `Pose de gaine avec tire fil.\n\n`+
+        `${fin}`
+      );
+    }
+
+    // TRAVAUX
+    const tLabel = typeTravauxLabel();
+    const hyper = `HYPER IMPORTANT : Vous devez suivre le même cheminement pour réaliser les travaux d'${tLabel}. Tout changement de cheminement doit-être signalé à Jean-Michel.`;
+
+    let materiel = '';
+    if(type.value==='infra'){
+      materiel = `Le matériel est à prévoir et à votre charge.\n\n`;
+    } else if(type.value==='rocade'){
+      materiel = `Les matériels suivants sont à votre charge:\n- Le câble fibre monomode\n- 4 jarretières SC/APC – SC/APC\n\n`;
+    } else if(type.value==='infra_rocade'){
+      materiel =
+        `Le matériel est à prévoir et à votre charge.\n\n`+
+        `Les matériels suivants sont à votre charge (partie ROCADE):\n- Le câble fibre monomode\n- 4 jarretières SC/APC – SC/APC\n\n`;
+    }
+
+    return (
+      `Bonjour,\n`+
+      `${htmlIntroTravaux().replace(/<[^>]+>/g,'')}\n\n`+
+      `${hyper}\n\n`+
+      `TRAVAUX À RÉALISER : ${tLabel}\n`+
+      (hno.value==='oui' ? `Horaire en HNO de 6h à 8h du matin\n\n` : `\n`) +
+      `${blocCommun}`+
+      `${materiel}`+
+      `${fin}`
+    );
+  }
+
+  function buildPreviewHtml(bodyTxt){
+    let html = escapeHtml(bodyTxt).replace(/\n/g,'<br>');
+    if(!type.value.startsWith('audit')){
+      const v = escapeHtml(ville.value.trim());
+      const introHtml = `Je vous joins le PV d’audit, pour l’inter sur le site "<b>MB</b> de <b>${v}</b>".`;
+      html = html.replace(/Je vous joins le PV d’audit, pour l’inter sur le site.*?<br>/, introHtml+"<br>");
+    } else {
+      html = html.replace(/site \"MB de ([^\"]+)\"\./, (m,p)=> `site \"<b>MB</b> de <b>${escapeHtml(p)}</b>\".`);
+    }
+    return html;
+  }
+
+  function generate(){
+    const subj = `TRAVAUX BOUYGUES - ${ticket.value.trim()} - MB - ${ville.value.trim()}`;
+    const body = buildBody();
+    document.getElementById('subjectOut').value = subj;
+    document.getElementById('bodyOut').value = body;
+    document.getElementById('preview').innerHTML = buildPreviewHtml(body);
+  }
+  document.getElementById('btnGenerate').addEventListener('click', generate);
+
+  async function copyToClipboard(text){
+    try{ await navigator.clipboard.writeText(text); toast('Copié'); }
+    catch(e){ alert('Copie impossible : '+e); }
+  }
+  document.getElementById('copySubject').addEventListener('click', ()=> copyToClipboard(document.getElementById('subjectOut').value));
+  document.getElementById('copyBody').addEventListener('click', ()=> copyToClipboard(document.getElementById('bodyOut').value));
+
+  function toast(msg){
+    const t=document.createElement('div');
+    t.textContent=msg;
+    t.style.position='fixed'; t.style.right='20px'; t.style.bottom='20px'; t.style.padding='10px 12px';
+    t.style.background='#0e1826'; t.style.border='1px solid var(--line)'; t.style.borderRadius='10px'; t.style.zIndex='9999';
+    document.body.appendChild(t); setTimeout(()=>t.remove(),1400);
+  }
+
+  function openMail(){
+    const subject = encodeURIComponent(document.getElementById('subjectOut').value);
+    const body = encodeURIComponent(document.getElementById('bodyOut').value);
+    window.location.href = `mailto:?subject=${subject}&body=${body}`;
+  }
+  document.getElementById('openEmail').addEventListener('click', openMail);
+})();
+function escapeHtml(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+</script>
+</body>
+</html>

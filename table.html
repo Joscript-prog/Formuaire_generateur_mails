@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Suivi Projets – Tableau Web</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root { color-scheme: light dark; }
+    th { position: sticky; top: 0; background: rgba(250,250,250,.95); backdrop-filter: blur(3px); }
+    .cell-editable{ display:block; min-width:140px; min-height:24px; padding:4px 6px; border:1px solid #e5e7eb; border-radius:6px; background:#fff; white-space:pre-wrap; }
+    .cell-editable[contenteditable="true"]:focus { outline:2px solid #2563eb33; border-color:#2563eb; border-radius:6px; }
+    .wrap { overflow-x: auto; }
+  </style>
+</head>
+<body class="min-h-screen bg-gray-50 text-gray-900">
+  <div class="max-w-full p-3 space-y-3">
+    <header class="flex items-center justify-between gap-3 flex-wrap">
+      <h1 class="text-xl font-semibold">Suivi Projets</h1>
+      <div class="flex gap-2 flex-wrap">
+        <button id="importBtn" class="px-3 py-1 rounded-xl bg-indigo-600 text-white shadow">Importer</button>
+        <button id="addRowBtn" class="px-3 py-1 rounded-xl bg-slate-700 text-white shadow">Ajouter une ligne</button>
+        <button id="saveBtn" class="px-3 py-1 rounded-xl bg-emerald-600 text-white shadow">Enregistrer</button>
+        <button id="exportBtn" class="px-3 py-1 rounded-xl bg-amber-600 text-white shadow">Exporter CSV</button>
+        <button id="resetBtn" class="px-3 py-1 rounded-xl bg-rose-600 text-white shadow">Réinitialiser</button>
+      </div>
+    </header>
+
+    <section class="bg-white rounded-2xl shadow p-2">
+      <input id="search" class="px-3 py-1 rounded-xl border w-full mb-2" placeholder="Recherche (site, code, OT, commentaire…)" />
+    </section>
+
+    <section class="bg-white rounded-2xl shadow wrap">
+      <table class="min-w-full text-xs" id="dataTable">
+        <thead>
+          <tr id="theadRow"></tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </section>
+  </div>
+
+<script>
+(function(){
+  const STORAGE_KEY = 'suivi_projets_data_v2';
+  const HEADERS = [
+    'CODE SITE','NOM DU SITE','OT AUDIT','TYPOLOGIE',"TYPE D'AUDIT",'DATES AUDITS','STATUT','CR REALISES','CHIFFRAGES','OT TRAVAUX','DATES TRAVAUX','TYPE DE TRAVAUX','STATUT TRAVAUX','CR REALISES2','COMMENTAIRES',
+    // Colonnes optionnelles si dispos (meilleure détection)
+    'DATE INFRA','DATES INFRA','DATE ROCADE','DATES ROCADE','LIEN','TYPE LIEN'
+  ];
+
+  let rows = [];
+  const tbody = document.getElementById('tbody');
+  const theadRow = document.getElementById('theadRow');
+  const search = document.getElementById('search');
+
+  // ====== Header (bouton Actions en DERNIÈRE colonne)
+  function buildHeader(){
+    const ths = HEADERS.map(h=>`<th class="p-1 text-left whitespace-nowrap">${h}</th>`);
+    ths.push('<th class="p-1 text-left whitespace-nowrap">Actions</th>');
+    theadRow.innerHTML = ths.join('');
+  }
+  buildHeader();
+
+  function escapeHtml(s){ return String(s??'').replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
+  function genId(){ return Math.random().toString(36).slice(2)+Date.now().toString(36); }
+
+  function badge(status){
+    const raw = (status==null? '': String(status)).trim();
+    if(!raw) return '';
+    const s = raw.toUpperCase();
+    let cls = 'bg-slate-200 text-slate-800';
+    if(s.includes('REALISE')) cls = 'bg-emerald-200 text-emerald-900';
+    else if(s.includes('EN COURS')) cls = 'bg-amber-200 text-amber-900';
+    else if(s.includes('PAS BESOIN')) cls = 'bg-blue-200 text-blue-900';
+    return `<span class="text-[10px] px-2 py-0.5 rounded-full ${cls}">${escapeHtml(raw)}</span>`;
+  }
+
+  // ====== Render
+  function render(){
+    let data = rows.slice();
+    const q = search.value.trim().toLowerCase();
+    if(q){ data = data.filter(r => HEADERS.some(h => String(r[h]||'').toLowerCase().includes(q))); }
+
+    tbody.innerHTML = data.map(r => {
+      const tds = HEADERS.map(h => {
+        const isStatus = (h==='STATUT' || h==='STATUT TRAVAUX');
+        const editable = isStatus ? badge(r[h]) :
+          `<div class="cell-editable" contenteditable="true" tabindex="0" spellcheck="false" data-id="${r.__id}" data-key="${h}">${escapeHtml(r[h]||'')}</div>`;
+        return `<td class="p-1 align-top whitespace-nowrap" data-col="${h}">${editable}</td>`;
+      });
+      // Actions à DROITE
+      tds.push(`<td class="p-1 align-top">
+        <button class="px-2 py-1 rounded bg-indigo-600 text-white" data-action="gen" data-id="${r.__id}">Générer</button>
+        <button class="ml-1 px-2 py-1 rounded bg-gray-600 text-white" data-action="dupe" data-id="${r.__id}">Dupliquer</button>
+        <button class="ml-1 px-2 py-1 rounded bg-rose-600 text-white" data-action="del" data-id="${r.__id}">Supprimer</button>
+      </td>`);
+      return `<tr class="border-b">${tds.join('')}</tr>`;
+    }).join('');
+  }
+
+  function save(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(rows)); }
+  function load(){ const s = localStorage.getItem(STORAGE_KEY); if(s){ try{ rows = JSON.parse(s)||[]; }catch{} } }
+  function addEmptyRow(){ const r = { __id: genId() }; HEADERS.forEach(h => r[h] = ''); rows.unshift(r); render(); }
+
+  // ====== Détections / Mapping
+  function detectTravauxType(r){
+    const dateInfra = (r['DATE INFRA']||r['DATES INFRA']||'').toString().trim();
+    const dateRoc   = (r['DATE ROCADE']||r['DATES ROCADE']||'').toString().trim();
+    if(dateInfra && dateRoc) return 'infra_rocade';
+    if(dateInfra) return 'infra';
+    if(dateRoc) return 'rocade';
+    const src = (r['TYPE DE TRAVAUX']||'').toString().toUpperCase();
+    if(src.includes('INFRA') && (src.includes('ROCADE')||src.includes('ROCA'))) return 'infra_rocade';
+    if(src.includes('INFRA')) return 'infra';
+    if(src.includes('ROCADE')||src.includes('ROCA')) return 'rocade';
+    return 'infra';
+  }
+  function isTravauxRow(r){
+    return String(r['DATES TRAVAUX']||'').trim().length>0 || String(r['OT TRAVAUX']||'').trim().length>0 ||
+           String(r['DATE INFRA']||'').trim().length>0 || String(r['DATE ROCADE']||'').trim().length>0 ||
+           String(r['DATES INFRA']||'').trim().length>0 || String(r['DATES ROCADE']||'').trim().length>0;
+  }
+  function detectLien(r){
+    const direct = (r['LIEN']||r['TYPE LIEN']||'').toString().trim();
+    if(direct) return direct;
+    const inAudit  = (r["TYPE D'AUDIT"]||'').toString().toUpperCase();
+    const inTrav   = (r['TYPE DE TRAVAUX']||'').toString().toUpperCase();
+    if(inAudit.includes('LIEN')||inTrav.includes('LIEN')) return 'FTTO';
+    return '';
+  }
+  function guessVille(nom){
+    if(!nom) return '';
+    let s = String(nom);
+    s = s.replace(/^\s*\d+[\s_\-]*/, '');     // supprime un éventuel code en tête
+    s = s.split(' - ')[0];                    // coupe avant suffixe " - BBG"
+    s = s.replace(/MARIE\s+BLACH[ÈE]RE/gi,'').replace(/MANGEONS\s+FRAIS/gi,'');
+    s = s.replace(/\s{2,}/g,' ').trim();
+    return s.toUpperCase();
+  }
+
+  // ====== Collage tableau
+  function parseTable(text){
+    const hasTab = text.includes('\t');
+    const first = text.split('\n')[0]||'';
+    const sep = hasTab ? '\t' : (first.includes(';') ? ';' : ',');
+    const lines = text.split(/\r?\n/).filter(l=>l.trim().length>0);
+    const data = lines.map(line => {
+      if(hasTab){ return line.split('\t'); }
+      // CSV simple avec quotes
+      const out=[]; let cur=''; let inQ=false;
+      for(let i=0;i<line.length;i++){
+        const c=line[i];
+        if(c==='"'){
+          if(inQ && line[i+1]==='"'){ cur+='"'; i++; }
+          else inQ=!inQ;
+        } else if(c===sep && !inQ){ out.push(cur); cur=''; }
+        else cur+=c;
+      }
+      out.push(cur);
+      return out;
+    });
+    return data;
+  }
+  function looksLikeHeader(arr){
+    const upper = arr.map(x => (x||'').toString().trim().toUpperCase());
+    let matches = 0; for(const h of HEADERS){ if(upper.includes(h)) matches++; }
+    return matches >= 3;
+  }
+
+  // Collage cellule → remplit à partir de la cellule, multi-lignes OK
+  tbody.addEventListener('paste', (e)=>{
+    const cell = e.target.closest('.cell-editable');
+    if(!cell) return;
+    const text = (e.clipboardData || window.clipboardData).getData('text'); if(!text) return;
+    if(!text.includes('\t') && !text.includes('\n')) return; // laisser le collage simple
+    e.preventDefault();
+    const table = parseTable(text);
+    const startKey = cell.dataset.key;
+    const startId  = cell.dataset.id;
+    const startCol = HEADERS.indexOf(startKey);
+    const startRowIndex = rows.findIndex(r => r.__id===startId);
+    for(let rIdx=0; rIdx<table.length; rIdx++){
+      const srcRow = table[rIdx];
+      const targetIndex = startRowIndex + rIdx;
+      if(!rows[targetIndex]){ const nr = { __id: genId() }; HEADERS.forEach(h => nr[h] = ''); rows.push(nr); }
+      const tgt = rows[targetIndex];
+      for(let c=0; c<srcRow.length && (startCol+c)<HEADERS.length; c++){
+        const h = HEADERS[startCol+c]; tgt[h] = (srcRow[c]||'').trim();
+      }
+    }
+    save(); render();
+  });
+
+  // Collage global (Ctrl+A depuis SharePoint → Ctrl+V dans la page)
+  document.addEventListener('paste', (e)=>{
+    if(e.target.closest && e.target.closest('.cell-editable')) return; // déjà géré
+    const text = (e.clipboardData || window.clipboardData).getData('text'); if(!text) return;
+    const table = parseTable(text); if(table.length===0) return;
+
+    if(looksLikeHeader(table[0])){
+      e.preventDefault();
+      const head = table[0];
+      const idx = HEADERS.map(h => head.findIndex(x => (x||'').toString().trim().toUpperCase()===h));
+      rows = table.slice(1).map(src => {
+        const r = { __id: genId() };
+        HEADERS.forEach((h,j)=>{ const i = idx[j]; r[h] = i>=0 ? (src[i]||'').trim() : ''; });
+        return r;
+      });
+      save(); render();
+    } else if(table.length>=1 && table[0].length>=3) {
+      e.preventDefault();
+      for(const src of table){
+        const r = { __id: genId() };
+        for(let j=0;j<HEADERS.length && j<src.length;j++){ r[HEADERS[j]] = (src[j]||'').trim(); }
+        rows.push(r);
+      }
+      save(); render();
+    }
+  });
+
+  // Édition + focus auto
+  tbody.addEventListener('click', (e)=>{
+    if(e.target.closest('button')) return;
+    const td = e.target.closest('td'); if(!td) return;
+    const box = td.querySelector('.cell-editable'); if(box) box.focus();
+  });
+  tbody.addEventListener('input', (e)=>{
+    const el = e.target.closest('.cell-editable'); if(!el) return;
+    const id = el.dataset.id; const key = el.dataset.key; const row = rows.find(r=>r.__id===id);
+    if(row){ row[key] = el.innerText.trim(); save(); }
+  });
+
+  // ====== Actions ligne
+  tbody.addEventListener('click', (e)=>{
+    const btn = e.target.closest('button[data-action]'); if(!btn) return;
+    const id = btn.dataset.id; const r = rows.find(x=>x.__id===id); if(!r) return;
+    const act = btn.dataset.action;
+
+    if(act==='dupe'){
+      const copy = JSON.parse(JSON.stringify(r)); copy.__id = genId(); rows.unshift(copy); save(); render();
+    } else if(act==='del'){
+      if(confirm('Supprimer cette ligne ?')){ rows = rows.filter(x=>x.__id!==id); save(); render(); }
+    } else if(act==='gen'){
+  const isTrav = isTravauxRow(r);
+  const type   = isTrav ? detectTravauxType(r) : (function(){
+    const src = (r["TYPE D'AUDIT"]||'').toString().toUpperCase();
+    const hasBaie = src.includes('BAIE'); const hasLien = src.includes('LIEN');
+    if(hasBaie && hasLien) return 'audit_baie_lien';
+    if(hasBaie) return 'audit_baie';
+    if(hasLien) return 'audit_lien';
+    return 'audit_baie_lien';
+  })();
+
+  const typRaw = (r['TYPOLOGIE']||'').toString().toUpperCase();
+  const typologieForm = typRaw.includes('ISOLE') ? 'SITE ISOLE' : 'SITE MITOYEN';
+
+  const ticketVal = isTrav ? (r['OT TRAVAUX']||'') : (r['OT AUDIT']||'');
+  const dateVal   = (function(){
+    if(isTrav){
+      const dI = (r['DATE INFRA']||r['DATES INFRA']||'').toString().trim();
+      const dR = (r['DATE ROCADE']||r['DATES ROCADE']||'').toString().trim();
+      if(type==='infra_rocade') return dI || dR || (r['DATES TRAVAUX']||'');
+      if(type==='infra')       return dI || (r['DATES TRAVAUX']||'');
+      if(type==='rocade')      return dR || (r['DATES TRAVAUX']||'');
+    }
+    return (r['DATES AUDITS']||'');
+  })();
+
+  function guessVille(nom){
+    if(!nom) return '';
+    let s = String(nom);
+    s = s.replace(/^\s*\d+[\s_\-]*/, '');
+    s = s.split(' - ')[0];
+    s = s.replace(/MARIE\s+BLACH[ÈE]RE/gi,'').replace(/MANGEONS\s+FRAIS/gi,'');
+    s = s.replace(/\s{2,}/g,' ').trim();
+    return s.toUpperCase();
+  }
+  const villeVal = guessVille(r['NOM DU SITE']||'');
+  const lienVal  = detectLien(r);
+
+  const params = new URLSearchParams({
+    type, ticket: ticketVal, date: dateVal, ville: villeVal,
+    typologie: typologieForm, raison: (r['NOM DU SITE']||''), lien: lienVal
+  });
+
+  // ➜ Résolution RELATIVE FIABLE depuis le fichier ouvert (même dossier)
+  const target = new URL('outil_mail.html', location.href); // <— assure-toi que le fichier s’appelle bien comme ça
+  target.search = params.toString();
+
+  const w = window.open(target.toString(), '_blank');
+  if (w) { w.opener = null; w.focus(); }
+}
+
+  });
+
+  // ====== Barre d'actions (haut)
+  document.getElementById('importBtn').addEventListener('click', ()=>{
+    const txt = prompt('Collez ici les données copiées depuis Excel/SharePoint'); if(!txt) return;
+    const table = parseTable(txt); if(!table.length) return;
+    if(looksLikeHeader(table[0])){
+      const head = table[0]; const idx = HEADERS.map(h => head.findIndex(x => (x||'').toString().trim().toUpperCase()===h));
+      rows = table.slice(1).map(src => { const r = { __id: genId() }; HEADERS.forEach((h,j)=>{ const i = idx[j]; r[h] = i>=0 ? (src[i]||'').trim() : ''; }); return r; });
+    } else {
+      rows = table.map(src => { const r = { __id: genId() }; HEADERS.forEach((h,j)=> r[h] = (src[j]||'').trim()); return r; });
+    }
+    save(); render();
+  });
+  document.getElementById('addRowBtn').addEventListener('click', addEmptyRow);
+  document.getElementById('saveBtn').addEventListener('click', ()=>{ save(); alert('Données enregistrées localement'); });
+  document.getElementById('exportBtn').addEventListener('click', ()=>{
+    const lines = [HEADERS.join(';')];
+    for(const r of rows){
+      const row = HEADERS.map(h => '"'+String(r[h]||'').replaceAll('"','""')+'"').join(';');
+      lines.push(row);
+    }
+    const csv = lines.join('\n');
+    const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'suivi_projets.csv'; a.click(); URL.revokeObjectURL(url);
+  });
+  document.getElementById('resetBtn').addEventListener('click', ()=>{ if(confirm('Tout effacer ?')){ rows=[]; save(); render(); } });
+
+  search.addEventListener('input', render);
+
+  (function init(){ load(); render(); })();
+})();
+</script>
+</body>
+</html>
