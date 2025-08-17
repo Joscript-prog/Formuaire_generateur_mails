@@ -55,14 +55,8 @@
         </div>
         <div class="col3"></div>
 
-        <div class="col4">
-          <label for="ticket">Ticket</label>
-          <input id="ticket" placeholder="ex. 535441" />
-        </div>
-        <div class="col4">
-          <label for="ville">Ville (unique)</label>
-          <input id="ville" placeholder="ex. SARREGUEMINES" />
-        </div>
+        <div class="col4"><label for="ticket">Ticket</label><input id="ticket" /></div>
+        <div class="col4"><label for="ville">Ville (unique)</label><input id="ville" /></div>
         <div class="col4">
           <label for="typologie">Typologie</label>
           <select id="typologie">
@@ -71,44 +65,17 @@
           </select>
         </div>
 
-        <div class="col4">
-          <label for="lien">Type de lien</label>
-          <input id="lien" value="FTTO" />
-        </div>
-        <div class="col8">
-          <label for="raison">Raison sociale</label>
-          <input id="raison" placeholder="ex. 5118 MARIE BLACHÈRE …" />
-        </div>
+        <div class="col4"><label for="lien">Type de lien</label><input id="lien" value="FTTO" /></div>
+        <div class="col8"><label for="raison">Raison sociale</label><input id="raison" /></div>
 
-        <div class="col4">
-          <label for="date">Date</label>
-          <input id="date" placeholder="ex. 25/08/2025" />
-        </div>
-        <div class="col4">
-          <label for="heure">Heure (optionnel)</label>
-          <input id="heure" placeholder="ex. 09h00" />
-        </div>
-        <div class="col2">
-          <label for="duree">Durée</label>
-          <input id="duree" placeholder="ex. 04H" />
-        </div>
-        <div class="col2">
-          <label for="prix">Prix</label>
-          <input id="prix" placeholder="ex. 200€" />
-        </div>
+        <div class="col4"><label for="date">Date</label><input id="date" placeholder="ex. 25/08/2025" /></div>
+        <div class="col4"><label for="heure">Heure (optionnel)</label><input id="heure" placeholder="ex. 09h00" /></div>
+        <div class="col2"><label for="duree">Durée</label><input id="duree" placeholder="ex. 04H" /></div>
+        <div class="col2"><label for="prix">Prix</label><input id="prix" placeholder="ex. 200€" /></div>
 
-        <div class="col8">
-          <label for="adresse">Adresse (voie et n°)</label>
-          <input id="adresse" placeholder="ex. 13 Rue …" />
-        </div>
-        <div class="col2">
-          <label for="cp">Code postal</label>
-          <input id="cp" placeholder="ex. 57200" />
-        </div>
-        <div class="col2">
-          <label for="villeAdr">Ville (adresse)</label>
-          <input id="villeAdr" disabled />
-        </div>
+        <div class="col8"><label for="adresse">Adresse</label><input id="adresse" placeholder="ex. 13 Rue …" /></div>
+        <div class="col2"><label for="cp">Code postal</label><input id="cp" placeholder="ex. 57200" /></div>
+        <div class="col2"><label for="villeAdr">Ville (adresse)</label><input id="villeAdr" disabled /></div>
 
         <div class="row">
           <div class="actions">
@@ -146,129 +113,46 @@
 <script>
 (function(){
   const $ = (s)=>document.querySelector(s);
-  const type = $('#type');
-  const hno = $('#hno');
-  const ticket = $('#ticket');
-  const ville = $('#ville');
-  const typologie = $('#typologie');
-  const lien = $('#lien');
-  const raison = $('#raison');
-  const date = $('#date');
-  const heure = $('#heure');
-  const duree = $('#duree');
-  const prix = $('#prix');
-  const adresse = $('#adresse');
-  const cp = $('#cp');
-  const villeAdr = $('#villeAdr');
-  const subjectOut = $('#subjectOut');
-  const bodyOut = $('#bodyOut');
-  const preview = $('#preview');
+  const type = $('#type'), hno = $('#hno'), ticket = $('#ticket'), ville = $('#ville');
+  const typologie = $('#typologie'), lien = $('#lien'), raison = $('#raison');
+  const date = $('#date'), heure = $('#heure'), duree = $('#duree'), prix = $('#prix');
+  const adresse = $('#adresse'), cp = $('#cp'), villeAdr = $('#villeAdr');
 
-  // Ville -> ville adresse
   function syncVille(){ villeAdr.value = ville.value || ''; }
   ville.addEventListener('input', syncVille); syncVille();
 
-  // ----- Pré-remplissage depuis l'URL -----
   function prefillFromURL(){
     const q = new URL(location.href).searchParams;
     const pick = (id, val) => { const el = document.getElementById(id); if (!el) return; if (val != null && val !== '') el.value = val; };
-    if (q.has('type'))      pick('type', q.get('type'));
-    if (q.has('ticket'))    pick('ticket', q.get('ticket'));
-    if (q.has('date'))      pick('date', q.get('date'));
-    if (q.has('ville'))     pick('ville', q.get('ville'));
-    if (q.has('typologie')) pick('typologie', q.get('typologie'));
-    if (q.has('raison'))    pick('raison', q.get('raison'));
-    if (q.has('lien'))      pick('lien', q.get('lien'));
-    // réplique ville -> villeAdr
-    const ev = new Event('input'); document.getElementById('ville').dispatchEvent(ev);
+    ['type','ticket','date','ville','typologie','raison','lien','prix','heure'].forEach(k => { if(q.has(k)) pick(k, q.get(k)); });
+    document.getElementById('ville').dispatchEvent(new Event('input'));
   }
   prefillFromURL();
-  // ----------------------------------------
 
-  function buildSubject(){
-    return `TRAVAUX BOUYGUES - ${ticket.value.trim()} - MB - ${ville.value.trim()}`;
-  }
-  function buildDateHeure(){
-    const d = (date.value||'').trim();
-    const h = (heure.value||'').trim();
-    return h ? `${d} à ${h}` : d;
-  }
-  function assembleAdresse(){
-    return [adresse.value.trim(), cp.value.trim(), ville.value.trim()].filter(Boolean).join(' ');
-  }
-  function htmlIntroTravaux(){
-    const v = escapeHtml(ville.value.trim());
-    return `Je vous joins le PV d’audit, pour l’inter sur le site "<b>MB</b> de <b>${v}</b>".`;
-  }
-  function typeTravauxLabel(){
-    if(type.value==='infra') return 'INFRA';
-    if(type.value==='rocade') return 'ROCADE';
-    if(type.value==='infra_rocade') return 'INFRA ET ROCADE';
-    return '';
-  }
+  function buildSubject(){ return `TRAVAUX BOUYGUES - ${ticket.value.trim()} - MB - ${ville.value.trim()}`; }
+  function buildDateHeure(){ const d = (date.value||'').trim(); const h = (heure.value||'').trim(); return h ? `${d} à ${h}` : d; }
+  function assembleAdresse(){ return [adresse.value.trim(), cp.value.trim(), ville.value.trim()].filter(Boolean).join(' '); }
+  function htmlIntroTravaux(){ const v = escapeHtml(ville.value.trim()); return `Je vous joins le PV d’audit, pour l’inter sur le site "<b>MB</b> de <b>${v}</b>".`; }
+  function typeTravauxLabel(){ if(type.value==='infra') return 'INFRA'; if(type.value==='rocade') return 'ROCADE'; if(type.value==='infra_rocade') return 'INFRA ET ROCADE'; return ''; }
 
   function buildBody(){
     const isAudit = type.value.startsWith('audit');
     const nomSite = `MB de ${ville.value.trim()}`;
     const dateHeure = buildDateHeure();
-
-    const blocCommun =
-      `Typologie   ${typologie.value}\n\n`+
-      `Lien : ${lien.value}\n\n`+
-      `-  raison sociale : ${raison.value}\n\n`;
-
-    const fin =
-      `Support : Jean-Michel – 06 37 43 08 48\n\n`+
-      `Date et heure : ${dateHeure}\n`+
-      `Durée : ${duree.value}\n`+
-      `Prix : ${prix.value}\n\n`+
-      `Adresse de l’intervention : ${assembleAdresse()}\n\n`+
-      `Je reste à votre disposition.\n\nCdt,`;
-
+    const blocCommun = `Typologie   ${typologie.value}\n\nLien : ${lien.value}\n\n-  raison sociale : ${raison.value}\n\n`;
+    const fin = `Support : Jean-Michel – 06 37 43 08 48\n\nDate et heure : ${dateHeure}\nDurée : ${duree.value}\nPrix : ${prix.value}\n\nAdresse de l’intervention : ${assembleAdresse()}\n\nJe reste à votre disposition.\n\nCdt,`;
     if(isAudit){
-      const auditLabel =
-        (type.value==='audit_baie') ? 'AUDIT BAIE' :
-        (type.value==='audit_lien') ? 'AUDIT LIEN' :
-        'AUDIT BAIE / LIEN';
-
-      return (
-        `Bonjour,\n`+
-        `Ce mail pour vous confirmer votre inter sur le site "${nomSite}".\n\n`+
-        `TRAVAUX À RÉALISER : ${auditLabel}\n`+
-        (hno.value==='oui' ? `Horaire en HNO de 6h à 8h du matin\n\n` : `\n`) +
-        `${blocCommun}`+
-        `Pose de gaine avec tire fil.\n\n`+
-        `${fin}`
-      );
+      const auditLabel = (type.value==='audit_baie') ? 'AUDIT BAIE' : (type.value==='audit_lien') ? 'AUDIT LIEN' : 'AUDIT BAIE / LIEN';
+      return `Bonjour,\nCe mail pour vous confirmer votre inter sur le site "${nomSite}".\n\nTRAVAUX À RÉALISER : ${auditLabel}\n`+(hno.value==='oui' ? `Horaire en HNO de 6h à 8h du matin\n\n` : `\n`)+`${blocCommun}Pose de gaine avec tire fil.\n\n${fin}`;
     }
-
-    // TRAVAUX
     const tLabel = typeTravauxLabel();
     const hyper = `HYPER IMPORTANT : Vous devez suivre le même cheminement pour réaliser les travaux d'${tLabel}. Tout changement de cheminement doit-être signalé à Jean-Michel.`;
-
     let materiel = '';
-    if(type.value==='infra'){
-      materiel = `Le matériel est à prévoir et à votre charge.\n\n`;
-    } else if(type.value==='rocade'){
-      materiel = `Les matériels suivants sont à votre charge:\n- Le câble fibre monomode\n- 4 jarretières SC/APC – SC/APC\n\n`;
-    } else if(type.value==='infra_rocade'){
-      materiel =
-        `Le matériel est à prévoir et à votre charge.\n\n`+
-        `Les matériels suivants sont à votre charge (partie ROCADE):\n- Le câble fibre monomode\n- 4 jarretières SC/APC – SC/APC\n\n`;
-    }
-
-    return (
-      `Bonjour,\n`+
-      `${htmlIntroTravaux().replace(/<[^>]+>/g,'')}\n\n`+
-      `${hyper}\n\n`+
-      `TRAVAUX À RÉALISER : ${tLabel}\n`+
-      (hno.value==='oui' ? `Horaire en HNO de 6h à 8h du matin\n\n` : `\n`) +
-      `${blocCommun}`+
-      `${materiel}`+
-      `${fin}`
-    );
+    if(type.value==='infra'){ materiel = `Le matériel est à prévoir et à votre charge.\n\n`; }
+    else if(type.value==='rocade'){ materiel = `Les matériels suivants sont à votre charge:\n- Le câble fibre monomode\n- 4 jarretières SC/APC – SC/APC\n\n`; }
+    else if(type.value==='infra_rocade'){ materiel = `Le matériel est à prévoir et à votre charge.\n\nLes matériels suivants sont à votre charge (partie ROCADE):\n- Le câble fibre monomode\n- 4 jarretières SC/APC – SC/APC\n\n`; }
+    return `Bonjour,\n${htmlIntroTravaux().replace(/<[^>]+>/g,'')}\n\n${hyper}\n\nTRAVAUX À RÉALISER : ${tLabel}\n`+(hno.value==='oui' ? `Horaire en HNO de 6h à 8h du matin\n\n` : `\n`)+`${blocCommun}${materiel}${fin}`;
   }
-
   function buildPreviewHtml(bodyTxt){
     let html = escapeHtml(bodyTxt).replace(/\n/g,'<br>');
     if(!type.value.startsWith('audit')){
@@ -280,36 +164,18 @@
     }
     return html;
   }
-
   function generate(){
-    const subj = `TRAVAUX BOUYGUES - ${ticket.value.trim()} - MB - ${ville.value.trim()}`;
-    const body = buildBody();
+    const subj = buildSubject(); const body = buildBody();
     document.getElementById('subjectOut').value = subj;
     document.getElementById('bodyOut').value = body;
     document.getElementById('preview').innerHTML = buildPreviewHtml(body);
   }
   document.getElementById('btnGenerate').addEventListener('click', generate);
-
-  async function copyToClipboard(text){
-    try{ await navigator.clipboard.writeText(text); toast('Copié'); }
-    catch(e){ alert('Copie impossible : '+e); }
-  }
+  async function copyToClipboard(text){ try{ await navigator.clipboard.writeText(text); toast('Copié'); } catch(e){ alert('Copie impossible : '+e); } }
   document.getElementById('copySubject').addEventListener('click', ()=> copyToClipboard(document.getElementById('subjectOut').value));
   document.getElementById('copyBody').addEventListener('click', ()=> copyToClipboard(document.getElementById('bodyOut').value));
-
-  function toast(msg){
-    const t=document.createElement('div');
-    t.textContent=msg;
-    t.style.position='fixed'; t.style.right='20px'; t.style.bottom='20px'; t.style.padding='10px 12px';
-    t.style.background='#0e1826'; t.style.border='1px solid var(--line)'; t.style.borderRadius='10px'; t.style.zIndex='9999';
-    document.body.appendChild(t); setTimeout(()=>t.remove(),1400);
-  }
-
-  function openMail(){
-    const subject = encodeURIComponent(document.getElementById('subjectOut').value);
-    const body = encodeURIComponent(document.getElementById('bodyOut').value);
-    window.location.href = `mailto:?subject=${subject}&body=${body}`;
-  }
+  function toast(msg){ const t=document.createElement('div'); t.textContent=msg; t.style.position='fixed'; t.style.right='20px'; t.style.bottom='20px'; t.style.padding='10px 12px'; t.style.background='#0e1826'; t.style.border='1px solid var(--line)'; t.style.borderRadius='10px'; t.style.zIndex='9999'; document.body.appendChild(t); setTimeout(()=>t.remove(),1400); }
+  function openMail(){ const subject = encodeURIComponent(document.getElementById('subjectOut').value); const body = encodeURIComponent(document.getElementById('bodyOut').value); window.location.href = `mailto:?subject=${subject}&body=${body}`; }
   document.getElementById('openEmail').addEventListener('click', openMail);
 })();
 function escapeHtml(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
