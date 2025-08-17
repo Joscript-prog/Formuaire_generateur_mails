@@ -13,7 +13,6 @@
     .cell-editable{ display:block; min-width:140px; min-height:24px; padding:4px 6px; border:1px solid #e5e7eb; border-radius:6px; background:#fff; white-space:pre-wrap; }
     .cell-editable[contenteditable="true"]:focus { outline:2px solid #2563eb33; border-color:#2563eb; border-radius:6px; }
     .table-wrap{ height: calc(100vh - 180px); overflow:auto; background:#fff; border-radius:16px; box-shadow:0 1px 6px rgba(0,0,0,.06); }
-    /* colonnes 1 et 2 sticky */
     #dataTable td:nth-child(1), #dataTable th:nth-child(1) { position: sticky; left: 0; z-index: 3; background: #fff; box-shadow: 1px 0 0 #e5e7eb; }
     #dataTable td:nth-child(2), #dataTable th:nth-child(2) { position: sticky; left: 160px; z-index: 3; background: #fff; box-shadow: 1px 0 0 #e5e7eb; }
   </style>
@@ -30,11 +29,9 @@
         <button id="importBtn" class="px-3 py-1 rounded-xl bg-indigo-600 text-white shadow">Importer</button>
         <button id="pasteBtn" class="px-3 py-1 rounded-xl bg-fuchsia-600 text-white shadow">Coller Excel</button>
         <button id="addRowBtn" class="px-3 py-1 rounded-xl bg-slate-700 text-white shadow">Ajouter une ligne</button>
-        <button id="saveBtn" class="px-3 py-1 rounded-xl bg-emerald-600 text-white shadow">Enregistrer</button>
         <button id="exportBtn" class="px-3 py-1 rounded-xl bg-amber-600 text-white shadow">Exporter CSV</button>
-        <button id="resetBtn" class="px-3 py-1 rounded-xl bg-rose-600 text-white shadow">Réinitialiser</button>
+        <button id="resetBtn" class="px-3 py-1 rounded-xl bg-rose-600 text-white shadow">Réinitialiser (local)</button>
         <span class="grow"></span>
-        <!-- Auth -->
         <input id="emailAuth" class="px-2 py-1 border rounded" placeholder="email pour login" />
         <button id="loginBtn" class="px-3 py-1 rounded-xl bg-blue-600 text-white">Login</button>
         <button id="logoutBtn" class="px-3 py-1 rounded-xl bg-gray-600 text-white">Logout</button>
@@ -76,48 +73,26 @@
     </section>
   </div>
 
-  <!-- Modal Coller -->
-  <div id="pasteModal" class="fixed inset-0 bg-black/40 hidden items-center justify-center">
-    <div class="bg-white rounded-2xl shadow max-w-3xl w-[92%] p-4">
-      <h2 class="text-lg font-semibold mb-2">Coller depuis Excel/SharePoint</h2>
-      <textarea id="pasteArea" class="w-full h-56 border rounded p-2" placeholder="Ctrl+V ici vos lignes"></textarea>
-      <div class="mt-3 flex gap-2 justify-end">
-        <button id="pasteCancel" class="px-3 py-1 border rounded">Annuler</button>
-        <button id="pasteApply" class="px-3 py-1 rounded bg-indigo-600 text-white">Appliquer</button>
-      </div>
-    </div>
-  </div>
-
 <script>
 (function(){
-  // ===== Supabase (optionnel) =====
-  const SUPABASE_URL = "https://qgwynpiyywanjckzlxor.supabase.co";
-  const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFnd3lucGl5eXdhbmpja3pseG9yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTU0MjEyMTEsImV4cCI6MjA3MDk5NzIxMX0.jrA4CpsHLsG3VMRJM_pMX-SafUv0c87_V4E5xezREOo";
+  // ====== CONFIG SUPABASE ======
+  const SUPABASE_URL = "REMPLACE-MOI";
+  const SUPABASE_KEY = "REMPLACE-MOI";
   const supa = (SUPABASE_URL && SUPABASE_KEY) ? supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
-  let currentUser = null;
 
-  async function supaLogin(email){
-    if(!supa) return alert('Supabase non configuré.');
-    const { error } = await supa.auth.signInWithOtp({ email });
-    if(error){ alert('Login error: '+error.message); return; }
-    alert("Lien magique envoyé. Vérifie ta boîte mail.");
-  }
-  async function supaLogout(){
-    if(!supa) return;
-    await supa.auth.signOut();
-    currentUser = null;
-    alert('Déconnecté.');
-  }
-  async function getUser(){ if(!supa) return null; const { data } = await supa.auth.getUser(); return data.user||null; }
-
-  // ===== Local storage fallback =====
+  // ====== Constantes / colonnes ======
   const STORAGE_KEY = 'suivi_projets_data_v2';
   const HEADERS = [
     'CODE SITE','NOM DU SITE','OT AUDIT','TYPOLOGIE',"TYPE D'AUDIT",'DATES AUDITS','STATUT','CR REALISES','CHIFFRAGES','OT TRAVAUX','DATES TRAVAUX','TYPE DE TRAVAUX','STATUT TRAVAUX','CR REALISES2','COMMENTAIRES',
     'DATE INFRA','DATES INFRA','DATE ROCADE','DATES ROCADE','LIEN','TYPE LIEN'
   ];
-  let rows = [];
 
+  // ====== État ======
+  let rows = [];                    // tableau ordonné pour l’affichage
+  const rowMap = new Map();         // id -> payload
+  let realtimeChannel = null;
+
+  // ====== DOM ======
   const tbody = document.getElementById('tbody');
   const theadRow = document.getElementById('theadRow');
   const search = document.getElementById('search');
@@ -126,15 +101,8 @@
   const fStatutTrav = document.getElementById('fStatutTrav');
   const clearFilters = document.getElementById('clearFilters');
 
-  // Build header
-  function buildHeader(){
-    const ths = HEADERS.map(h=>`<th class="p-1 text-left whitespace-nowrap">${h}</th>`);
-    ths.push('<th class="p-1 text-left whitespace-nowrap">Actions</th>');
-    theadRow.innerHTML = ths.join('');
-  }
-  buildHeader();
-
-  function escapeHtml(s){ return String(s??'').replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
+  // ====== UI helpers ======
+  function escapeHtml(s){ return String(s??'').replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;"," >":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
   function genId(){ return Math.random().toString(36).slice(2)+Date.now().toString(36); }
   function badge(status){
     const raw = (status==null? '': String(status)).trim();
@@ -146,30 +114,16 @@
     else if(s.includes('PAS BESOIN')) cls = 'bg-blue-200 text-blue-900';
     return `<span class="text-[10px] px-2 py-0.5 rounded-full ${cls}">${escapeHtml(raw)}</span>`;
   }
-  function toDDMMYYYY(s){
-    s = (s||'').trim(); if(!s) return s;
-    const m1 = s.match(/^(\d{2})[\/\-](\d{2})[\/\-](\d{4})$/); if(m1) return `${m1[1]}/${m1[2]}/${m1[3]}`;
-    const m2 = s.match(/^(\d{4})[\/\-](\d{2})[\/\-](\d{2})$/); if(m2) return `${m2[3]}/${m2[2]}/${m2[1]}`;
-    return s;
+
+  // ====== Header ======
+  function buildHeader(){
+    const ths = HEADERS.map(h=>`<th class="p-1 text-left whitespace-nowrap">${h}</th>`);
+    ths.push('<th class="p-1 text-left whitespace-nowrap">Actions</th>');
+    theadRow.innerHTML = ths.join('');
   }
-  function detectLien(r){
-    const direct = (r['LIEN']||r['TYPE LIEN']||'').toString().trim();
-    if(direct) return direct;
-    const inAudit  = (r["TYPE D'AUDIT"]||'').toString().toUpperCase();
-    const inTrav   = (r['TYPE DE TRAVAUX']||'').toString().toUpperCase();
-    const com = (r['COMMENTAIRES']||'').toString().toUpperCase();
-    if(inAudit.includes('LIEN')||inTrav.includes('LIEN')||com.includes('LIEN')) return 'FTTO';
-    return '';
-  }
-  function guessVille(nom){
-    if(!nom) return '';
-    let s = String(nom);
-    s = s.replace(/^\s*\d+[\s_\-]*/, '');
-    s = s.split(' - ')[0];
-    s = s.replace(/MARIE\s+BLACH[ÈE]RE/gi,'').replace(/MANGEONS\s+FRAIS/gi,'');
-    s = s.replace(/\s{2,}/g,' ').trim();
-    return s.toUpperCase();
-  }
+  buildHeader();
+
+  // ====== Rendu ======
   function detectTravauxType(r){
     const di = (r['DATE INFRA']||r['DATES INFRA']||'').toString().trim();
     const dr = (r['DATE ROCADE']||r['DATES ROCADE']||'').toString().trim();
@@ -189,13 +143,19 @@
     }
     return 'audit_baie_lien';
   }
+  function detectLien(r){
+    const direct = (r['LIEN']||r['TYPE LIEN']||'').toString().trim();
+    if(direct) return direct;
+    const inAudit  = (r["TYPE D'AUDIT"]||'').toString().toUpperCase();
+    const inTrav   = (r['TYPE DE TRAVAUX']||'').toString().toUpperCase();
+    const com = (r['COMMENTAIRES']||'').toString().toUpperCase();
+    if(inAudit.includes('LIEN')||inTrav.includes('LIEN')||com.includes('LIEN')) return 'FTTO';
+    return '';
+  }
 
-  function render(){
-    let data = rows.slice();
+  function applyFilters(data){
     const q = search.value.trim().toLowerCase();
     if(q){ data = data.filter(r => HEADERS.some(h => String(r[h]||'').toLowerCase().includes(q))); }
-
-    // filtres
     if (fTypologie && fTypologie.value) {
       const v = fTypologie.value.toUpperCase();
       data = data.filter(r => (r['TYPOLOGIE']||'').toString().toUpperCase().includes(v));
@@ -214,7 +174,12 @@
       const v = fStatutTrav.value.toUpperCase();
       data = data.filter(r => (r['STATUT TRAVAUX']||'').toString().toUpperCase().includes(v));
     }
+    return data;
+  }
 
+  function render(){
+    let data = rows.slice();
+    data = applyFilters(data);
     tbody.innerHTML = data.map(r => {
       const tds = HEADERS.map(h => {
         const isStatus = (h==='STATUT' || h==='STATUT TRAVAUX');
@@ -231,30 +196,65 @@
     }).join('');
   }
 
-  // Persist
+  // ====== Local fallback ======
   function saveLocal(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(rows)); }
-  function loadLocal(){ const s = localStorage.getItem(STORAGE_KEY); if(s){ try{ rows = JSON.parse(s)||[]; }catch{} } }
+  function loadLocal(){ const s = localStorage.getItem(STORAGE_KEY); if(s){ try{ rows = JSON.parse(s)||[]; rows.forEach(r=>rowMap.set(r.__id, r)); }catch{} } }
 
+  // ====== Supabase helpers (per-row) ======
+  async function upsertRow(r){
+    if(!supa) { saveLocal(); return; }
+    await supa.from('suivi_rows').upsert({ id: r.__id, payload: r });
+  }
+  async function deleteRow(id){
+    if(!supa) {
+      rows = rows.filter(x=>x.__id!==id);
+      rowMap.delete(id);
+      saveLocal(); render();
+      return;
+    }
+    await supa.from('suivi_rows').delete().eq('id', id);
+  }
+
+  // ====== Init/Load + Realtime ======
   async function load(){
-    if(!supa){ loadLocal(); return render(); }
-    currentUser = await getUser();
-    if(!currentUser){ loadLocal(); return render(); }
-    const { data, error } = await supa.from('suivi').select('*').order('created_at',{ascending:true});
+    if(!supa){
+      loadLocal(); render(); return;
+    }
+    const { data, error } = await supa.from('suivi_rows').select('id,payload').order('updated_at',{ascending:true});
     if(error){ console.warn(error); loadLocal(); return render(); }
-    rows = (data||[]).map(x=>x.payload);
+    rows = (data||[]).map(x=>{
+      const r = x.payload; r.__id = r.__id || x.id; return r;
+    });
+    rowMap.clear(); rows.forEach(r=>rowMap.set(r.__id, r));
     render();
-  }
-  async function save(){
-    if(!supa || !currentUser){ return saveLocal(); }
-    // stratégie simple: remplace tout
-    await supa.from('suivi').delete().neq('id',0);
-    const inserts = rows.map(r=>({ payload:r }));
-    await supa.from('suivi').insert(inserts);
+
+    // Realtime
+    if(realtimeChannel) supa.removeChannel(realtimeChannel);
+    realtimeChannel = supa.channel('suivi_rows_changes')
+      .on('postgres_changes', { event: '*', schema:'public', table:'suivi_rows' }, (payload)=>{
+        if(payload.eventType==='INSERT' || payload.eventType==='UPDATE'){
+          const r = payload.new.payload; r.__id = r.__id || payload.new.id;
+          rowMap.set(r.__id, r);
+          const idx = rows.findIndex(x=>x.__id===r.__id);
+          if(idx>=0) rows[idx] = r; else rows.push(r);
+          render();
+        } else if(payload.eventType==='DELETE'){
+          const id = payload.old.id;
+          rowMap.delete(id);
+          rows = rows.filter(x=>x.__id!==id);
+          render();
+        }
+      }).subscribe();
   }
 
-  function addEmptyRow(){ const r = { __id: genId(), __meta:{} }; HEADERS.forEach(h => r[h] = ''); rows.unshift(r); render(); }
+  // ====== Actions UI ======
+  function addEmptyRow(){
+    const r = { __id: genId() }; HEADERS.forEach(h => r[h] = '');
+    rows.unshift(r); rowMap.set(r.__id, r);
+    upsertRow(r); render();
+  }
 
-  // PASTE helpers
+  // parse de collage
   function parseTable(text){
     const hasTab = text.includes('\t');
     const first = text.split('\n')[0]||'';
@@ -280,138 +280,27 @@
     return matches >= 3;
   }
 
-  // PASTE in cell
-  tbody.addEventListener('paste', (e)=>{
-    const cell = e.target.closest('.cell-editable');
-    if(!cell) return;
-    const text = (e.clipboardData || window.clipboardData).getData('text'); if(!text) return;
-    if(!text.includes('\t') && !text.includes('\n')) return;
-    e.preventDefault();
-    const table = parseTable(text);
-    const startKey = cell.dataset.key;
-    const startId  = cell.dataset.id;
-    const startCol = HEADERS.indexOf(startKey);
-    const startRowIndex = rows.findIndex(r => r.__id===startId);
-    for(let rIdx=0; rIdx<table.length; rIdx++){
-      const srcRow = table[rIdx];
-      const targetIndex = startRowIndex + rIdx;
-      if(!rows[targetIndex]){ const nr = { __id: genId(), __meta:{} }; HEADERS.forEach(h => nr[h] = ''); rows.push(nr); }
-      const tgt = rows[targetIndex];
-      for(let c=0; c<srcRow.length && (startCol+c)<HEADERS.length; c++){
-        const h = HEADERS[startCol+c]; tgt[h] = (srcRow[c]||'').trim();
-      }
-    }
-    save(); saveLocal(); render();
-  });
+  // Écoutes
+  document.getElementById('addRowBtn').addEventListener('click', addEmptyRow);
 
-  // PASTE global
-  document.addEventListener('paste', (e)=>{
-    if(e.target.closest && e.target.closest('.cell-editable')) return;
-    const text = (e.clipboardData || window.clipboardData).getData('text'); if(!text) return;
-    const table = parseTable(text); if(table.length===0) return;
-
-    if(looksLikeHeader(table[0])){
-      e.preventDefault();
-      const head = table[0];
-      const idx = HEADERS.map(h => head.findIndex(x => (x||'').toString().trim().toUpperCase()===h));
-      rows = table.slice(1).map(src => {
-        const r = { __id: genId(), __meta:{} };
-        HEADERS.forEach((h,j)=>{ const i = idx[j]; r[h] = i>=0 ? (src[i]||'').trim() : ''; });
-        return r;
-      });
-      save(); saveLocal(); render();
-    } else if(table.length>=1 && table[0].length>=3) {
-      e.preventDefault();
-      for(const src of table){
-        const r = { __id: genId(), __meta:{} };
-        for(let j=0;j<HEADERS.length && j<src.length;j++){ r[HEADERS[j]] = (src[j]||'').trim(); }
-        rows.push(r);
-      }
-      save(); saveLocal(); render();
-    }
-  });
-
-  // Inline edit
-  tbody.addEventListener('click', (e)=>{
-    if(e.target.closest('button')) return;
-    const td = e.target.closest('td'); if(!td) return;
-    const box = td.querySelector('.cell-editable'); if(box) box.focus();
-  });
-  tbody.addEventListener('input', (e)=>{
-    const el = e.target.closest('.cell-editable'); if(!el) return;
-    const id = el.dataset.id; const key = el.dataset.key; const row = rows.find(r=>r.__id===id);
-    if(row){ row[key] = el.innerText.trim(); saveLocal(); }
-  });
-
-  // Actions ligne
-  tbody.addEventListener('click', async (e)=>{
-    const btn = e.target.closest('button[data-action]'); if(!btn) return;
-    const id = btn.dataset.id; const r = rows.find(x=>x.__id===id); if(!r) return;
-    const act = btn.dataset.action;
-    if(act==='dupe'){
-      const copy = JSON.parse(JSON.stringify(r)); copy.__id = genId(); rows.unshift(copy); await save(); saveLocal(); render();
-    } else if(act==='del'){
-      if(confirm('Supprimer cette ligne ?')){ rows = rows.filter(x=>x.__id!==id); await save(); saveLocal(); render(); }
-    } else if(act==='gen'){
-      const isTrav = (()=>{
-        const t = detectTravauxType(r);
-        return t==='infra' || t==='rocade' || t==='infra_rocade';
-      })();
-      const type   = detectTravauxType(r);
-      const typRaw = (r['TYPOLOGIE']||'').toString().toUpperCase();
-      const typologieForm = typRaw.includes('ISOLE') ? 'SITE ISOLE' : 'SITE MITOYEN';
-      const ticketVal = isTrav ? (r['OT TRAVAUX']||'') : (r['OT AUDIT']||'');
-      const meta = r.__meta||{};
-      let dateVal = meta.dateInter ? toDDMMYYYY(meta.dateInter) : (isTrav ? (r['DATES TRAVAUX']||'') : (r['DATES AUDITS']||''));
-      if(meta.heureInter){ dateVal = dateVal ? `${dateVal} ${meta.heureInter}` : meta.heureInter; }
-      const villeVal = guessVille(r['NOM DU SITE']||'');
-      const lienVal  = detectLien(r);
-      const params = new URLSearchParams({
-        type, ticket: ticketVal, date: dateVal, ville: villeVal,
-        typologie: typologieForm, raison: (r['NOM DU SITE']||''), lien: lienVal,
-        prix: meta.prixVente ? String(meta.prixVente) : ''
-      });
-      const target = new URL('outil_mail.html', location.href);
-      target.search = params.toString();
-      const a = document.createElement('a'); a.href = target.toString(); a.target = '_blank'; a.rel='noopener'; document.body.appendChild(a); a.click(); a.remove();
-    }
-  });
-
-  // Top bar actions
-  document.getElementById('importBtn').addEventListener('click', ()=>{
+  document.getElementById('importBtn').addEventListener('click', async ()=>{
     const txt = prompt('Collez ici les données copiées depuis Excel/SharePoint'); if(!txt) return;
     const table = parseTable(txt); if(!table.length) return;
+    let newRows = [];
     if(looksLikeHeader(table[0])){
       const head = table[0]; const idx = HEADERS.map(h => head.findIndex(x => (x||'').toString().trim().toUpperCase()===h));
-      rows = table.slice(1).map(src => { const r = { __id: genId(), __meta:{} }; HEADERS.forEach((h,j)=>{ const i = idx[j]; r[h] = i>=0 ? (src[i]||'').trim() : ''; }); return r; });
+      newRows = table.slice(1).map(src => {
+        const r = { __id: genId() }; HEADERS.forEach((h,j)=>{ const i = idx[j]; r[h] = i>=0 ? (src[i]||'').trim() : ''; }); return r;
+      });
     } else {
-      rows = table.map(src => { const r = { __id: genId(), __meta:{} }; HEADERS.forEach((h,j)=> r[h] = (src[j]||'').trim()); return r; });
+      newRows = table.map(src => { const r = { __id: genId() }; HEADERS.forEach((h,j)=> r[h] = (src[j]||'').trim()); return r; });
     }
-    saveLocal(); save(); render();
-  });
-  const pasteBtn = document.getElementById('pasteBtn');
-  const pasteModal = document.getElementById('pasteModal');
-  const pasteArea = document.getElementById('pasteArea');
-  const pasteCancel = document.getElementById('pasteCancel');
-  const pasteApply = document.getElementById('pasteApply');
-  function openPaste(){ pasteArea.value=''; pasteModal.classList.remove('hidden'); pasteModal.classList.add('flex'); pasteArea.focus(); }
-  function closePaste(){ pasteModal.classList.add('hidden'); pasteModal.classList.remove('flex'); }
-  pasteBtn && pasteBtn.addEventListener('click', openPaste);
-  pasteCancel && pasteCancel.addEventListener('click', closePaste);
-  pasteApply && pasteApply.addEventListener('click', ()=>{
-    const txt = pasteArea.value.trim(); if(!txt){ closePaste(); return; }
-    const table = parseTable(txt); if(!table.length){ closePaste(); return; }
-    if(looksLikeHeader(table[0])){
-      const head = table[0]; const idx = HEADERS.map(h => head.findIndex(x => (x||'').toString().trim().toUpperCase()===h));
-      rows = table.slice(1).map(src => { const r = { __id: genId(), __meta:{} }; HEADERS.forEach((h,j)=>{ const i = idx[j]; r[h] = i>=0 ? (src[i]||'').trim() : ''; }); return r; });
-    } else {
-      rows = table.map(src => { const r = { __id: genId(), __meta:{} }; HEADERS.forEach((h,j)=> r[h] = (src[j]||'').trim()); return r; });
-    }
-    saveLocal(); save(); render(); closePaste();
+    for(const r of newRows){ rows.push(r); rowMap.set(r.__id, r); await upsertRow(r); }
+    render();
   });
 
-  document.getElementById('addRowBtn').addEventListener('click', ()=>{ addEmptyRow(); saveLocal(); save(); });
-  document.getElementById('saveBtn').addEventListener('click', async ()=>{ await save(); alert('Données enregistrées.'); });
+  const pasteBtn = document.getElementById('pasteBtn');
+  const pasteModal = null; // retiré
   document.getElementById('exportBtn').addEventListener('click', ()=>{
     const lines = [HEADERS.join(';')];
     for(const r of rows){
@@ -423,20 +312,95 @@
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a'); a.href = url; a.download = 'suivi_projets.csv'; a.click(); URL.revokeObjectURL(url);
   });
-  document.getElementById('resetBtn').addEventListener('click', async ()=>{ if(confirm('Tout effacer ?')){ rows=[]; saveLocal(); await save(); render(); } });
 
+  document.getElementById('resetBtn').addEventListener('click', ()=>{ if(confirm('Ça ne vide que le stockage local. Les données DB restent. Continuer ?')){ localStorage.removeItem(STORAGE_KEY); alert('LocalStorage vidé.'); } });
+
+  search.addEventListener('input', render);
   [fTypologie,fTravaux,fStatutTrav].forEach(el=> el && el.addEventListener('change', render));
   clearFilters && clearFilters.addEventListener('click', ()=>{ fTypologie.value=''; fTravaux.value=''; fStatutTrav.value=''; render(); });
 
-  // Auth buttons
+  // Inline edit
+  tbody.addEventListener('click', (e)=>{ if(e.target.closest('button')) return; const td = e.target.closest('td'); if(!td) return; const box = td.querySelector('.cell-editable'); if(box) box.focus(); });
+  tbody.addEventListener('input', async (e)=>{
+    const el = e.target.closest('.cell-editable'); if(!el) return;
+    const id = el.dataset.id; const key = el.dataset.key; const r = rowMap.get(id);
+    if(r){ r[key] = el.innerText.trim(); await upsertRow(r); }
+  });
+
+  // Collage dans cellule
+  tbody.addEventListener('paste', async (e)=>{
+    const cell = e.target.closest('.cell-editable'); if(!cell) return;
+    const text = (e.clipboardData || window.clipboardData).getData('text'); if(!text) return;
+    if(!text.includes('\t') && !text.includes('\n') && !text.includes(';') && !text.includes(',')) return;
+    e.preventDefault();
+    const table = parseTable(text);
+    const startKey = cell.dataset.key;
+    const startId  = cell.dataset.id;
+    const startCol = HEADERS.indexOf(startKey);
+    const startRowIndex = rows.findIndex(r => r.__id===startId);
+    const toUpsert = [];
+    for(let rIdx=0; rIdx<table.length; rIdx++){
+      const srcRow = table[rIdx];
+      const targetIndex = startRowIndex + rIdx;
+      if(!rows[targetIndex]){ const nr = { __id: genId() }; HEADERS.forEach(h => nr[h] = ''); rows.push(nr); rowMap.set(nr.__id, nr); }
+      const tgt = rows[targetIndex];
+      for(let c=0; c<srcRow.length && (startCol+c)<HEADERS.length; c++){
+        const h = HEADERS[startCol+c]; tgt[h] = (srcRow[c]||'').trim();
+      }
+      toUpsert.push(tgt);
+    }
+    for(const r of toUpsert){ await upsertRow(r); }
+    render();
+  });
+
+  // Boutons ligne
+  tbody.addEventListener('click', async (e)=>{
+    const btn = e.target.closest('button[data-action]'); if(!btn) return;
+    const id = btn.dataset.id; const r = rowMap.get(id); if(!r) return;
+    const act = btn.dataset.action;
+    if(act==='dupe'){
+      const copy = JSON.parse(JSON.stringify(r)); copy.__id = genId(); rows.unshift(copy); rowMap.set(copy.__id, copy); await upsertRow(copy); render();
+    } else if(act==='del'){
+      if(confirm('Supprimer cette ligne ?')){ await deleteRow(id); }
+    } else if(act==='gen'){
+      const type = (()=>{
+        const di = (r['DATE INFRA']||r['DATES INFRA']||'').toString().trim();
+        const dr = (r['DATE ROCADE']||r['DATES ROCADE']||'').toString().trim();
+        if(di && dr) return 'infra_rocade';
+        if(di) return 'infra';
+        if(dr) return 'rocade';
+        const src = (r['TYPE DE TRAVAUX']||'').toString().toUpperCase();
+        if(src.includes('INFRA') && (src.includes('ROCADE')||src.includes('ROCA'))) return 'infra_rocade';
+        if(src.includes('INFRA')) return 'infra';
+        if(src.includes('ROCADE')||src.includes('ROCA')) return 'rocade';
+        return 'audit_baie_lien';
+      })();
+      const typRaw = (r['TYPOLOGIE']||'').toString().toUpperCase();
+      const typologieForm = typRaw.includes('ISOLE') ? 'SITE ISOLE' : 'SITE MITOYEN';
+      const isTrav = (type==='infra'||type==='rocade'||type==='infra_rocade');
+      const ticketVal = isTrav ? (r['OT TRAVAUX']||'') : (r['OT AUDIT']||'');
+      const villeVal = (r['NOM DU SITE']||'').replace(/^\s*\d+[\s_\-]*/, '').split(' - ')[0].replace(/MARIE\s+BLACH[ÈE]RE|MANGEONS\s+FRAIS/gi,'').replace(/\s{2,}/g,' ').trim().toUpperCase();
+      const lienVal  = (r['LIEN']||'') || detectLien(r);
+      const params = new URLSearchParams({
+        type, ticket: ticketVal, date: isTrav ? (r['DATES TRAVAUX']||'') : (r['DATES AUDITS']||''),
+        ville: villeVal, typologie: typologieForm, raison: (r['NOM DU SITE']||''), lien: lienVal
+      });
+      const target = new URL('outil_mail.html', location.href);
+      target.search = params.toString();
+      const a = document.createElement('a'); a.href = target.toString(); a.target = '_blank'; a.rel='noopener'; document.body.appendChild(a); a.click(); a.remove();
+    }
+  });
+
+  // Auth boutons
   document.getElementById('loginBtn').addEventListener('click', async ()=>{
     const email = document.getElementById('emailAuth').value.trim();
     if(!email) return alert('Entre un email.');
-    await supaLogin(email);
+    const { error } = await supa.auth.signInWithOtp({ email });
+    if(error) alert('Login error: '+error.message); else alert('Lien magique envoyé.');
   });
-  document.getElementById('logoutBtn').addEventListener('click', supaLogout);
+  document.getElementById('logoutBtn').addEventListener('click', async ()=>{ await supa.auth.signOut(); alert('Déconnecté.'); load(); });
 
-  (async function init(){ await load(); render(); })();
+  (async function init(){ await load(); })();
 })();
 </script>
 </body>
