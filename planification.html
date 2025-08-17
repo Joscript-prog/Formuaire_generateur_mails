@@ -15,7 +15,6 @@
     select,input[type="date"],input[type="time"]{border:1px solid #e5e7eb;border-radius:8px;padding:6px;background:#fff}
     .ok{background:#16a34a;color:#fff;border-radius:8px;padding:6px 10px}
     .disabled{opacity:.5;pointer-events:none}
-    /* colonnes 1 et 2 sticky */
     #planTable td:nth-child(1), #planTable th:nth-child(1) { position: sticky; left: 0; z-index: 3; background: #fff; box-shadow: 1px 0 0 #e5e7eb; }
     #planTable td:nth-child(2), #planTable th:nth-child(2) { position: sticky; left: 160px; z-index: 3; background: #fff; box-shadow: 1px 0 0 #e5e7eb; }
   </style>
@@ -30,8 +29,8 @@
       </nav>
       <div class="flex gap-2 items-center">
         <button id="addRowBtn" class="px-3 py-1 rounded-xl bg-slate-700 text-white shadow">Ajouter une ligne</button>
-        <button id="saveBtn" class="px-3 py-1 rounded-xl bg-emerald-600 text-white shadow">Enregistrer</button>
-        <button id="resetBtn" class="px-3 py-1 rounded-xl bg-rose-600 text-white shadow">Réinitialiser</button>
+        <button id="saveBtn" class="px-3 py-1 rounded-xl bg-emerald-600 text-white shadow">Enregistrer (DB)</button>
+        <button id="resetBtn" class="px-3 py-1 rounded-xl bg-rose-600 text-white shadow">Réinitialiser (local)</button>
         <span class="grow"></span>
         <input id="emailAuth" class="px-2 py-1 border rounded" placeholder="email pour login" />
         <button id="loginBtn" class="px-3 py-1 rounded-xl bg-blue-600 text-white">Login</button>
@@ -41,7 +40,7 @@
 
     <section class="bg-white rounded-2xl shadow p-2">
       <input id="search" class="px-3 py-1 rounded-xl border w-full mb-2" placeholder="Recherche (Ticket, Site, Ville, Tech…)" />
-      <p class="text-xs text-slate-500 mt-1">Astuce : clique dans la <b>première cellule</b> d’une ligne puis <b>Ctrl/Cmd+V</b> pour coller un bloc (Excel/SharePoint). Le collage respecte les colonnes et ajoute les lignes nécessaires.</p>
+      <p class="text-xs text-slate-500 mt-1">Astuce : clique dans la <b>première cellule</b> d’une ligne puis <b>Ctrl/Cmd+V</b> pour coller en bloc. Les lignes se créent automatiquement.</p>
     </section>
 
     <section class="table-wrap">
@@ -56,7 +55,6 @@
             <th class="p-1">Site</th>
             <th class="p-1">Contact</th>
             <th class="p-1">Cp</th>
-            <!-- Ville est optionnelle dans D4 actuel, on la garde si tu veux l’utiliser plus tard -->
             <th class="p-1">Ville</th>
 
             <th class="p-1">TECH</th>
@@ -77,74 +75,79 @@
 
 <script>
 (function(){
-  // ===== Supabase (optionnel) =====
-  const SUPABASE_URL = "https://qgwynpiyywanjckzlxor.supabase.co";
-  const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFnd3lucGl5eXdhbmpja3pseG9yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTU0MjEyMTEsImV4cCI6MjA3MDk5NzIxMX0.jrA4CpsHLsG3VMRJM_pMX-SafUv0c87_V4E5xezREOo";
+  // ====== CONFIG SUPABASE ======
+  const SUPABASE_URL = "REMPLACE-MOI";
+  const SUPABASE_KEY = "REMPLACE-MOI";
   const supa = (SUPABASE_URL && SUPABASE_KEY) ? supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
-  let currentUser = null;
-
-  async function supaLogin(email){
-    if(!supa) return alert('Supabase non configuré.');
-    const { error } = await supa.auth.signInWithOtp({ email });
-    if(error){ alert('Login error: '+error.message); return; }
-    alert("Lien magique envoyé. Vérifie ta boîte mail.");
-  }
-  async function supaLogout(){ if(!supa) return; await supa.auth.signOut(); currentUser=null; alert('Déconnecté.'); }
-  async function getUser(){ if(!supa) return null; const { data } = await supa.auth.getUser(); return data.user||null; }
 
   const STORAGE_PLAN = 'planning_rows_v1';
-  const STORAGE_SUIVI = 'suivi_projets_data_v2';
-
-  // Ordre des colonnes (on peut coller directement dans cet ordre)
   const HEADERS = [
     '# Ticket','Client','Références','Date','Prestation','Site','Contact','Cp','Ville',
     'TECH','DATE_INTER','HEURE_INTER','TYPOLOGIE','COMMENTAIRES','VENTE','ACHAT'
   ];
-
-  const typesOptions = [
-    'AUDIT – BAIE',
-    'AUDIT – LIEN',
-    'AUDIT – BAIE + LIEN',
-    'TRAVAUX – INFRA',
-    'TRAVAUX – ROCADE',
-    'TRAVAUX – INFRA ET ROCADE'
+  const typeOptions = [
+    'AUDIT – BAIE','AUDIT – LIEN','AUDIT – BAIE + LIEN',
+    'TRAVAUX – INFRA','TRAVAUX – ROCADE','TRAVAUX – INFRA ET ROCADE'
   ];
 
   let rows = [];
+  const rowMap = new Map();
+  let realtimeChannel = null;
 
   const pbody = document.getElementById('pbody');
   const search = document.getElementById('search');
 
   function escapeHtml(s){ return String(s??'').replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;"," >":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
   function genId(){ return Math.random().toString(36).slice(2)+Date.now().toString(36); }
-  function ddmmyyyy(dstr){ const d=new Date(dstr); if(!isFinite(d)) return ''; const dd=String(d.getDate()).padStart(2,'0'); const mm=String(d.getMonth()+1).padStart(2,'0'); const yy=d.getFullYear(); return `${dd}/${mm}/${yy}`; }
 
-  // Persist local +/ supabase
   function saveLocal(){ localStorage.setItem(STORAGE_PLAN, JSON.stringify(rows)); }
-  function loadLocal(){ const s = localStorage.getItem(STORAGE_PLAN); if(s){ try{ rows = JSON.parse(s)||[]; }catch{} } }
+  function loadLocal(){ const s = localStorage.getItem(STORAGE_PLAN); if(s){ try{ rows = JSON.parse(s)||[]; rows.forEach(r=>rowMap.set(r.__id,r)); }catch{} } }
+
+  // Supabase helpers
+  async function upsertRow(r){
+    if(!supa){ saveLocal(); return; }
+    await supa.from('planning_rows').upsert({ id: r.__id, payload: r });
+  }
+  async function deleteRow(id){
+    if(!supa){
+      rows = rows.filter(x=>x.__id!==id); rowMap.delete(id); saveLocal(); render(); return;
+    }
+    await supa.from('planning_rows').delete().eq('id', id);
+  }
+
   async function load(){
     if(!supa){ loadLocal(); return render(); }
-    currentUser = await getUser();
-    if(!currentUser){ loadLocal(); return render(); }
-    const { data, error } = await supa.from('planning').select('*').order('created_at',{ascending:true});
+    const { data, error } = await supa.from('planning_rows').select('id,payload').order('updated_at',{ascending:true});
     if(error){ console.warn(error); loadLocal(); return render(); }
-    rows = (data||[]).map(x=>x.payload);
+    rows = (data||[]).map(x=>{ const r=x.payload; r.__id=r.__id||x.id; return r; });
+    rowMap.clear(); rows.forEach(r=>rowMap.set(r.__id,r));
     render();
-  }
-  async function save(){
-    if(!supa || !currentUser){ return saveLocal(); }
-    await supa.from('planning').delete().neq('id',0);
-    const inserts = rows.map(r=>({ payload:r }));
-    await supa.from('planning').insert(inserts);
+
+    if(realtimeChannel) supa.removeChannel(realtimeChannel);
+    realtimeChannel = supa.channel('planning_rows_changes')
+      .on('postgres_changes', { event:'*', schema:'public', table:'planning_rows' }, (payload)=>{
+        if(payload.eventType==='INSERT' || payload.eventType==='UPDATE'){
+          const r = payload.new.payload; r.__id = r.__id || payload.new.id;
+          rowMap.set(r.__id, r);
+          const idx = rows.findIndex(x=>x.__id===r.__id);
+          if(idx>=0) rows[idx]=r; else rows.push(r);
+          render();
+        } else if(payload.eventType==='DELETE'){
+          const id = payload.old.id;
+          rowMap.delete(id);
+          rows = rows.filter(x=>x.__id!==id);
+          render();
+        }
+      }).subscribe();
   }
 
   function addEmptyRow(){
     const r = { __id: genId() };
     HEADERS.forEach(h=> r[h]='');
-    // valeurs par défaut utiles
     r['TYPOLOGIE']='SITE ISOLE';
     r['COMMENTAIRES']='AUDIT – BAIE + LIEN';
-    rows.unshift(r); render();
+    rows.unshift(r); rowMap.set(r.__id, r);
+    upsertRow(r); render();
   }
 
   function render(){
@@ -152,7 +155,7 @@
     const data = rows.filter(r => !q || Object.values(r).some(v => String(v??'').toLowerCase().includes(q)));
     pbody.innerHTML = data.map(r=>{
       const typeSelect = `<select data-id="${r.__id}" data-field="COMMENTAIRES" class="w-[180px]">
-        ${typesOptions.map(opt=>`<option ${r['COMMENTAIRES']===opt?'selected':''}>${opt}</option>`).join('')}
+        ${typeOptions.map(opt=>`<option ${r['COMMENTAIRES']===opt?'selected':''}>${opt}</option>`).join('')}
       </select>`;
       const typoSelect = `<select data-id="${r.__id}" data-field="TYPOLOGIE" class="w-[140px]">
         <option ${r['TYPOLOGIE']==='SITE ISOLE'?'selected':''}>SITE ISOLE</option>
@@ -180,116 +183,104 @@
         </td>
         <td class="p-1">
           <button class="px-2 py-1 rounded bg-blue-600 text-white ${(r.okTECH&&r.okDATE_INTER&&r.okCOMMENTAIRES&&r.okVENTE)?'':'disabled'}" data-send="${r.__id}">Envoyer</button>
+          <button class="ml-1 px-2 py-1 rounded bg-rose-600 text-white" data-del="${r.__id}">Supprimer</button>
         </td>
       </tr>`;
     }).join('');
   }
 
-  // ======= Collage type Excel directement dans les cellules =======
-  /**
-   * parseGrid : parse un texte de collage (Excel/CSV/TSV) en tableau 2D
-   * - autodétecte le séparateur: tabulation (\t) sinon ';' sinon ','
-   * - gère les champs entre guillemets "..." contenant des délimiteurs et des retours ligne
-   * - gère les guillemets doublés "" => "
-   */
+  // Collage robuste (tab/;/, + guillemets + multilignes)
   function parseGrid(text){
     const sep = text.includes('\t') ? '\t' : (text.split('\n')[0].includes(';') ? ';' : ',');
-    const rows = [];
-    let cur = ''; let row = []; let inQ = false;
+    const rows = []; let cur=''; let row=[]; let inQ=false;
     for(let i=0;i<text.length;i++){
       const c = text[i];
       if(c === '"'){
-        if(inQ && text[i+1] === '"'){ cur += '"'; i++; } // "" => "
-        else { inQ = !inQ; }
+        if(inQ && text[i+1] === '"'){ cur += '"'; i++; } else { inQ = !inQ; }
       } else if(c === sep && !inQ){
-        row.push(cur); cur = '';
+        row.push(cur); cur='';
       } else if((c === '\n' || c === '\r') && !inQ){
-        // fin de ligne (support \r\n)
         if(c === '\r' && text[i+1] === '\n') i++;
-        row.push(cur); rows.push(row);
-        row = []; cur = '';
-      } else {
-        cur += c;
-      }
+        row.push(cur); rows.push(row); row = []; cur = '';
+      } else { cur += c; }
     }
-    // fin
     if(cur.length>0 || row.length>0){ row.push(cur); rows.push(row); }
-    // nettoyage: trim chaque cellule
     return rows.map(r => r.map(x => (x||'').trim()));
   }
 
-  // PASTE dans une cellule : à partir de la cellule courante, rempli colonnes puis lignes
-  pbody.addEventListener('paste', (e)=>{
-    const cell = e.target.closest('.cell-editable');
-    if(!cell) return; // ne gère que le collage dans les cellules texte
-    const text = (e.clipboardData || window.clipboardData).getData('text');
-    if(!text) return;
+  // Events
+  document.getElementById('addRowBtn').addEventListener('click', addEmptyRow);
+  document.getElementById('resetBtn').addEventListener('click', ()=>{ if(confirm('Ça ne vide que le stockage local.')){ localStorage.removeItem(STORAGE_PLAN); alert('LocalStorage vidé.'); } });
+  document.getElementById('saveBtn').addEventListener('click', async ()=>{ // noop: upserts déjà temps réel
+    alert('Les lignes sont déjà enregistrées au fil de l’eau.');
+  });
 
-    // si c'est un collage simple (pas tab, pas newline) -> laisser le navigateur gérer
+  search.addEventListener('input', render);
+
+  // Édition texte
+  pbody.addEventListener('input', async (e)=>{
+    const el = e.target.closest('.cell-editable'); if(!el) return;
+    const id = el.dataset.id, key = el.dataset.key; const r = rowMap.get(id); if(!r) return;
+    r[key] = el.innerText.trim(); await upsertRow(r);
+  });
+
+  // Sélecteurs & inputs date/time
+  pbody.addEventListener('change', async (e)=>{
+    const id = e.target.dataset.id; const field = e.target.dataset.field;
+    if(!id || !field) return;
+    const r = rowMap.get(id); if(!r) return;
+    r[field] = e.target.value; await upsertRow(r);
+  });
+
+  // Collage dans cellule
+  pbody.addEventListener('paste', async (e)=>{
+    const cell = e.target.closest('.cell-editable'); if(!cell) return;
+    const text = (e.clipboardData || window.clipboardData).getData('text'); if(!text) return;
     if(!text.includes('\t') && !text.includes('\n') && !text.includes(';') && !text.includes(',')) return;
-
     e.preventDefault();
     const table = parseGrid(text);
-    if(table.length===0) return;
-
     const startKey = cell.dataset.key;
     const startId  = cell.dataset.id;
     const startCol = HEADERS.indexOf(startKey);
     const startRowIndex = rows.findIndex(r => r.__id===startId);
-
+    const changed = [];
     for(let rIdx=0; rIdx<table.length; rIdx++){
       const srcRow = table[rIdx];
       const targetIndex = startRowIndex + rIdx;
-      if(!rows[targetIndex]){ // créer des lignes si besoin
-        const nr = { __id: genId() };
-        HEADERS.forEach(h => nr[h] = '');
-        // valeurs par défaut utiles
-        nr['TYPOLOGIE']='SITE ISOLE';
-        nr['COMMENTAIRES']='AUDIT – BAIE + LIEN';
-        rows.push(nr);
-      }
+      if(!rows[targetIndex]){ const nr = { __id: genId() }; HEADERS.forEach(h => nr[h] = ''); nr['TYPOLOGIE']='SITE ISOLE'; nr['COMMENTAIRES']='AUDIT – BAIE + LIEN'; rows.push(nr); rowMap.set(nr.__id,nr); }
       const tgt = rows[targetIndex];
       for(let c=0; c<srcRow.length && (startCol+c)<HEADERS.length; c++){
-        const h = HEADERS[startCol+c];
-        tgt[h] = srcRow[c];
+        const h = HEADERS[startCol+c]; tgt[h] = srcRow[c];
       }
+      changed.push(tgt);
     }
-    saveLocal(); render();
+    for(const r of changed){ await upsertRow(r); }
+    render();
   });
 
-  // ===== édition / UI =====
-  pbody.addEventListener('input', (e)=>{
-    const el = e.target.closest('.cell-editable'); if(!el) return;
-    const id = el.dataset.id; const key = el.dataset.key; const r = rows.find(x=>x.__id===id);
-    if(r){ r[key] = el.innerText.trim(); saveLocal(); }
-  });
-
-  pbody.addEventListener('change', (e)=>{
-    const id = e.target.dataset.id; const field = e.target.dataset.field;
-    if(!id || !field) return;
-    const r = rows.find(x=>x.__id===id); if(!r) return;
-    r[field] = e.target.value; saveLocal();
-  });
-
-  // OK + Envoyer -> pousse vers table.html (localStorage)
-  pbody.addEventListener('click', (e)=>{
+  // OK & Envoyer
+  pbody.addEventListener('click', async (e)=>{
     const ok = e.target.closest('button[data-ok]');
     if(ok){
-      const id = ok.dataset.id; const field = ok.dataset.ok;
-      const r = rows.find(x=>x.__id===id); if(!r) return;
-      r['ok'+field] = true; saveLocal(); render(); return;
+      const id = ok.dataset.id; const field = ok.dataset.ok; const r = rowMap.get(id); if(!r) return;
+      r['ok'+field] = true; await upsertRow(r); render(); return;
+    }
+    const del = e.target.closest('button[data-del]');
+    if(del){
+      const id = del.dataset.del; if(!id) return;
+      if(confirm('Supprimer cette ligne de planification ?')){ await deleteRow(id); }
+      return;
     }
     const send = e.target.closest('button[data-send]');
     if(send){
-      const id = send.dataset.send; const r = rows.find(x=>x.__id===id); if(!r) return;
-      const suivi = JSON.parse(localStorage.getItem(STORAGE_SUIVI)||'[]');
+      const id = send.dataset.send; const r = rowMap.get(id); if(!r) return;
 
-      // OT = premier 8 chiffres commençant par 1 dans Références (même s'il y a un 2e numéro en dessous)
+      // Extraire OT = premier 8 chiffres commençant par 1 dans "Références"
       const ref = (r['Références']||'').replace(/\s+/g,' ');
       const m = ref.match(/\b1\d{7}\b/);
       const ot = m ? m[0] : '';
 
-      // mapping type depuis Commentaires
+      // Type depuis Commentaires
       const t = (r['COMMENTAIRES']||'').toUpperCase();
       const isAudit = t.includes('AUDIT');
       let typeTrav=''; let typeAudit='';
@@ -304,7 +295,9 @@
         else if(t.includes('ROCADE')||t.includes('LIEN')) typeTrav='ROCADE';
       }
 
-      const row = {
+      // Construire la ligne pour le tableau Suivi
+      const ddmmyyyy = (dstr)=>{ const d=new Date(dstr); if(!isFinite(d)) return ''; const dd=String(d.getDate()).padStart(2,'0'), mm=String(d.getMonth()+1).padStart(2,'0'), yy=d.getFullYear(); return `${dd}/${mm}/${yy}`; };
+      const suiviRow = {
         __id: (Math.random().toString(36).slice(2)+Date.now().toString(36)),
         __meta: {
           tech: r['TECH']||'',
@@ -333,29 +326,30 @@
         'TYPE LIEN':''
       };
 
-      suivi.push(row);
-      localStorage.setItem(STORAGE_SUIVI, JSON.stringify(suivi));
-      alert('Envoyé dans le tableau (Suivi).');
+      // Envoi vers la DB suivi_rows (ou LocalStorage si pas de supabase)
+      if(supa){
+        await supa.from('suivi_rows').upsert({ id: suiviRow.__id, payload: suiviRow });
+        alert('Envoyé dans le tableau (Suivi, DB). Ouvre/actualise table.html pour le voir (ou attends le Realtime).');
+      } else {
+        const STORAGE_SUIVI = 'suivi_projets_data_v2';
+        const suivi = JSON.parse(localStorage.getItem(STORAGE_SUIVI)||'[]'); suivi.push(suiviRow);
+        localStorage.setItem(STORAGE_SUIVI, JSON.stringify(suivi));
+        alert('Envoyé dans le tableau (Suivi, LocalStorage).');
+      }
     }
   });
-
-  // Boutons top
-  document.getElementById('addRowBtn').addEventListener('click', ()=>{ addEmptyRow(); saveLocal(); });
-  document.getElementById('saveBtn').addEventListener('click', async ()=>{ await save(); alert('Planification enregistrée.'); });
-  document.getElementById('resetBtn').addEventListener('click', async ()=>{ if(confirm('Tout effacer ?')){ rows=[]; saveLocal(); await save(); render(); }});
-  search.addEventListener('input', render);
 
   // Auth
   document.getElementById('loginBtn').addEventListener('click', async ()=>{
     const email = document.getElementById('emailAuth').value.trim();
     if(!email) return alert('Entre un email.');
-    await supaLogin(email);
+    const { error } = await supa.auth.signInWithOtp({ email });
+    if(error) alert('Login error: '+error.message); else alert('Lien magique envoyé.');
   });
-  document.getElementById('logoutBtn').addEventListener('click', supaLogout);
+  document.getElementById('logoutBtn').addEventListener('click', async ()=>{ await supa.auth.signOut(); alert('Déconnecté.'); load(); });
 
-  (async function init(){ await load(); render(); })();
+  (async function init(){ await load(); })();
 })();
 </script>
 </body>
 </html>
-
