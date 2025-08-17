@@ -3,26 +3,41 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Suivi Projets – Tableau Web</title>
+  <title>Suivi Projets – Tableau</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.3/dist/umd/supabase.min.js"></script>
   <style>
     :root { color-scheme: light dark; }
+    body,html{height:100%}
     th { position: sticky; top: 0; background: rgba(250,250,250,.95); backdrop-filter: blur(3px); }
     .cell-editable{ display:block; min-width:140px; min-height:24px; padding:4px 6px; border:1px solid #e5e7eb; border-radius:6px; background:#fff; white-space:pre-wrap; }
     .cell-editable[contenteditable="true"]:focus { outline:2px solid #2563eb33; border-color:#2563eb; border-radius:6px; }
-    .wrap { overflow-x: auto; }
+    .table-wrap{ height: calc(100vh - 180px); overflow:auto; background:#fff; border-radius:16px; box-shadow:0 1px 6px rgba(0,0,0,.06); }
+    /* colonnes 1 et 2 sticky */
+    #dataTable td:nth-child(1), #dataTable th:nth-child(1) { position: sticky; left: 0; z-index: 3; background: #fff; box-shadow: 1px 0 0 #e5e7eb; }
+    #dataTable td:nth-child(2), #dataTable th:nth-child(2) { position: sticky; left: 160px; z-index: 3; background: #fff; box-shadow: 1px 0 0 #e5e7eb; }
   </style>
 </head>
 <body class="min-h-screen bg-gray-50 text-gray-900">
   <div class="max-w-full p-3 space-y-3">
     <header class="flex items-center justify-between gap-3 flex-wrap">
-      <h1 class="text-xl font-semibold">Suivi Projets</h1>
-      <div class="flex gap-2 flex-wrap">
+      <nav class="flex items-center gap-2">
+        <span class="px-3 py-1 rounded-xl bg-slate-800 text-white shadow">Suivi</span>
+        <a href="planification.html" class="px-3 py-1 rounded-xl bg-slate-200 text-slate-900 shadow">Planification</a>
+        <a href="outil_mail.html" class="px-3 py-1 rounded-xl bg-slate-200 text-slate-900 shadow" target="_blank" rel="noopener">Générateur</a>
+      </nav>
+      <div class="flex items-center gap-2 flex-wrap">
         <button id="importBtn" class="px-3 py-1 rounded-xl bg-indigo-600 text-white shadow">Importer</button>
+        <button id="pasteBtn" class="px-3 py-1 rounded-xl bg-fuchsia-600 text-white shadow">Coller Excel</button>
         <button id="addRowBtn" class="px-3 py-1 rounded-xl bg-slate-700 text-white shadow">Ajouter une ligne</button>
         <button id="saveBtn" class="px-3 py-1 rounded-xl bg-emerald-600 text-white shadow">Enregistrer</button>
         <button id="exportBtn" class="px-3 py-1 rounded-xl bg-amber-600 text-white shadow">Exporter CSV</button>
         <button id="resetBtn" class="px-3 py-1 rounded-xl bg-rose-600 text-white shadow">Réinitialiser</button>
+        <span class="grow"></span>
+        <!-- Auth -->
+        <input id="emailAuth" class="px-2 py-1 border rounded" placeholder="email pour login" />
+        <button id="loginBtn" class="px-3 py-1 rounded-xl bg-blue-600 text-white">Login</button>
+        <button id="logoutBtn" class="px-3 py-1 rounded-xl bg-gray-600 text-white">Logout</button>
       </div>
     </header>
 
@@ -30,31 +45,88 @@
       <input id="search" class="px-3 py-1 rounded-xl border w-full mb-2" placeholder="Recherche (site, code, OT, commentaire…)" />
     </section>
 
-    <section class="bg-white rounded-2xl shadow wrap">
+    <section class="bg-white rounded-2xl shadow p-2">
+      <div class="flex flex-wrap gap-2 items-center">
+        <select id="fTypologie" class="border rounded px-2 py-1">
+          <option value="">Typologie (toutes)</option>
+          <option>SITE ISOLE</option>
+          <option>SITE MITOYEN</option>
+        </select>
+        <select id="fTravaux" class="border rounded px-2 py-1">
+          <option value="">Type Travaux (tous)</option>
+          <option>INFRA</option>
+          <option>ROCADE</option>
+          <option>INFRA ET ROCADE</option>
+        </select>
+        <select id="fStatutTrav" class="border rounded px-2 py-1">
+          <option value="">Statut Travaux (tous)</option>
+          <option>REALISE</option>
+          <option>EN COURS</option>
+          <option>PAS BESOIN</option>
+        </select>
+        <button id="clearFilters" class="ml-auto px-3 py-1 rounded bg-slate-100">Réinitialiser</button>
+      </div>
+    </section>
+
+    <section class="table-wrap">
       <table class="min-w-full text-xs" id="dataTable">
-        <thead>
-          <tr id="theadRow"></tr>
-        </thead>
+        <thead><tr id="theadRow"></tr></thead>
         <tbody id="tbody"></tbody>
       </table>
     </section>
   </div>
 
+  <!-- Modal Coller -->
+  <div id="pasteModal" class="fixed inset-0 bg-black/40 hidden items-center justify-center">
+    <div class="bg-white rounded-2xl shadow max-w-3xl w-[92%] p-4">
+      <h2 class="text-lg font-semibold mb-2">Coller depuis Excel/SharePoint</h2>
+      <textarea id="pasteArea" class="w-full h-56 border rounded p-2" placeholder="Ctrl+V ici vos lignes"></textarea>
+      <div class="mt-3 flex gap-2 justify-end">
+        <button id="pasteCancel" class="px-3 py-1 border rounded">Annuler</button>
+        <button id="pasteApply" class="px-3 py-1 rounded bg-indigo-600 text-white">Appliquer</button>
+      </div>
+    </div>
+  </div>
+
 <script>
 (function(){
+  // ===== Supabase (optionnel) =====
+  const SUPABASE_URL = "https://qgwynpiyywanjckzlxor.supabase.co";
+  const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFnd3lucGl5eXdhbmpja3pseG9yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTU0MjEyMTEsImV4cCI6MjA3MDk5NzIxMX0.jrA4CpsHLsG3VMRJM_pMX-SafUv0c87_V4E5xezREOo";
+  const supa = (SUPABASE_URL && SUPABASE_KEY) ? supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
+  let currentUser = null;
+
+  async function supaLogin(email){
+    if(!supa) return alert('Supabase non configuré.');
+    const { error } = await supa.auth.signInWithOtp({ email });
+    if(error){ alert('Login error: '+error.message); return; }
+    alert("Lien magique envoyé. Vérifie ta boîte mail.");
+  }
+  async function supaLogout(){
+    if(!supa) return;
+    await supa.auth.signOut();
+    currentUser = null;
+    alert('Déconnecté.');
+  }
+  async function getUser(){ if(!supa) return null; const { data } = await supa.auth.getUser(); return data.user||null; }
+
+  // ===== Local storage fallback =====
   const STORAGE_KEY = 'suivi_projets_data_v2';
   const HEADERS = [
     'CODE SITE','NOM DU SITE','OT AUDIT','TYPOLOGIE',"TYPE D'AUDIT",'DATES AUDITS','STATUT','CR REALISES','CHIFFRAGES','OT TRAVAUX','DATES TRAVAUX','TYPE DE TRAVAUX','STATUT TRAVAUX','CR REALISES2','COMMENTAIRES',
-    // Colonnes optionnelles si dispos (meilleure détection)
     'DATE INFRA','DATES INFRA','DATE ROCADE','DATES ROCADE','LIEN','TYPE LIEN'
   ];
-
   let rows = [];
+
   const tbody = document.getElementById('tbody');
   const theadRow = document.getElementById('theadRow');
   const search = document.getElementById('search');
+  const fTypologie = document.getElementById('fTypologie');
+  const fTravaux = document.getElementById('fTravaux');
+  const fStatutTrav = document.getElementById('fStatutTrav');
+  const clearFilters = document.getElementById('clearFilters');
 
-  // ====== Header (bouton Actions en DERNIÈRE colonne)
+  // Build header
   function buildHeader(){
     const ths = HEADERS.map(h=>`<th class="p-1 text-left whitespace-nowrap">${h}</th>`);
     ths.push('<th class="p-1 text-left whitespace-nowrap">Actions</th>');
@@ -64,7 +136,6 @@
 
   function escapeHtml(s){ return String(s??'').replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
   function genId(){ return Math.random().toString(36).slice(2)+Date.now().toString(36); }
-
   function badge(status){
     const raw = (status==null? '': String(status)).trim();
     if(!raw) return '';
@@ -75,12 +146,74 @@
     else if(s.includes('PAS BESOIN')) cls = 'bg-blue-200 text-blue-900';
     return `<span class="text-[10px] px-2 py-0.5 rounded-full ${cls}">${escapeHtml(raw)}</span>`;
   }
+  function toDDMMYYYY(s){
+    s = (s||'').trim(); if(!s) return s;
+    const m1 = s.match(/^(\d{2})[\/\-](\d{2})[\/\-](\d{4})$/); if(m1) return `${m1[1]}/${m1[2]}/${m1[3]}`;
+    const m2 = s.match(/^(\d{4})[\/\-](\d{2})[\/\-](\d{2})$/); if(m2) return `${m2[3]}/${m2[2]}/${m2[1]}`;
+    return s;
+  }
+  function detectLien(r){
+    const direct = (r['LIEN']||r['TYPE LIEN']||'').toString().trim();
+    if(direct) return direct;
+    const inAudit  = (r["TYPE D'AUDIT"]||'').toString().toUpperCase();
+    const inTrav   = (r['TYPE DE TRAVAUX']||'').toString().toUpperCase();
+    const com = (r['COMMENTAIRES']||'').toString().toUpperCase();
+    if(inAudit.includes('LIEN')||inTrav.includes('LIEN')||com.includes('LIEN')) return 'FTTO';
+    return '';
+  }
+  function guessVille(nom){
+    if(!nom) return '';
+    let s = String(nom);
+    s = s.replace(/^\s*\d+[\s_\-]*/, '');
+    s = s.split(' - ')[0];
+    s = s.replace(/MARIE\s+BLACH[ÈE]RE/gi,'').replace(/MANGEONS\s+FRAIS/gi,'');
+    s = s.replace(/\s{2,}/g,' ').trim();
+    return s.toUpperCase();
+  }
+  function detectTravauxType(r){
+    const di = (r['DATE INFRA']||r['DATES INFRA']||'').toString().trim();
+    const dr = (r['DATE ROCADE']||r['DATES ROCADE']||'').toString().trim();
+    if(di && dr) return 'infra_rocade';
+    if(di) return 'infra';
+    if(dr) return 'rocade';
+    const src = (r['TYPE DE TRAVAUX']||'').toString().toUpperCase();
+    if(src.includes('INFRA') && (src.includes('ROCADE')||src.includes('ROCA'))) return 'infra_rocade';
+    if(src.includes('INFRA')) return 'infra';
+    if(src.includes('ROCADE')||src.includes('ROCA')) return 'rocade';
+    const com = (r['COMMENTAIRES']||'').toString().toUpperCase();
+    if(com.includes('TRAVAUX')){
+      if(com.includes('INFRA') && com.includes('ROCADE')) return 'infra_rocade';
+      if(com.includes('INFRA')) return 'infra';
+      if(com.includes('ROCADE')||com.includes('LIEN')) return 'rocade';
+      return 'infra';
+    }
+    return 'audit_baie_lien';
+  }
 
-  // ====== Render
   function render(){
     let data = rows.slice();
     const q = search.value.trim().toLowerCase();
     if(q){ data = data.filter(r => HEADERS.some(h => String(r[h]||'').toLowerCase().includes(q))); }
+
+    // filtres
+    if (fTypologie && fTypologie.value) {
+      const v = fTypologie.value.toUpperCase();
+      data = data.filter(r => (r['TYPOLOGIE']||'').toString().toUpperCase().includes(v));
+    }
+    if (fTravaux && fTravaux.value) {
+      const v = fTravaux.value.toUpperCase();
+      data = data.filter(r => {
+        const t = detectTravauxType(r);
+        if (v==='INFRA ET ROCADE') return t==='infra_rocade';
+        if (v==='INFRA') return t==='infra';
+        if (v==='ROCADE') return t==='rocade';
+        return true;
+      });
+    }
+    if (fStatutTrav && fStatutTrav.value) {
+      const v = fStatutTrav.value.toUpperCase();
+      data = data.filter(r => (r['STATUT TRAVAUX']||'').toString().toUpperCase().includes(v));
+    }
 
     tbody.innerHTML = data.map(r => {
       const tds = HEADERS.map(h => {
@@ -89,7 +222,6 @@
           `<div class="cell-editable" contenteditable="true" tabindex="0" spellcheck="false" data-id="${r.__id}" data-key="${h}">${escapeHtml(r[h]||'')}</div>`;
         return `<td class="p-1 align-top whitespace-nowrap" data-col="${h}">${editable}</td>`;
       });
-      // Actions à DROITE
       tds.push(`<td class="p-1 align-top">
         <button class="px-2 py-1 rounded bg-indigo-600 text-white" data-action="gen" data-id="${r.__id}">Générer</button>
         <button class="ml-1 px-2 py-1 rounded bg-gray-600 text-white" data-action="dupe" data-id="${r.__id}">Dupliquer</button>
@@ -99,47 +231,30 @@
     }).join('');
   }
 
-  function save(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(rows)); }
-  function load(){ const s = localStorage.getItem(STORAGE_KEY); if(s){ try{ rows = JSON.parse(s)||[]; }catch{} } }
-  function addEmptyRow(){ const r = { __id: genId() }; HEADERS.forEach(h => r[h] = ''); rows.unshift(r); render(); }
+  // Persist
+  function saveLocal(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(rows)); }
+  function loadLocal(){ const s = localStorage.getItem(STORAGE_KEY); if(s){ try{ rows = JSON.parse(s)||[]; }catch{} } }
 
-  // ====== Détections / Mapping
-  function detectTravauxType(r){
-    const dateInfra = (r['DATE INFRA']||r['DATES INFRA']||'').toString().trim();
-    const dateRoc   = (r['DATE ROCADE']||r['DATES ROCADE']||'').toString().trim();
-    if(dateInfra && dateRoc) return 'infra_rocade';
-    if(dateInfra) return 'infra';
-    if(dateRoc) return 'rocade';
-    const src = (r['TYPE DE TRAVAUX']||'').toString().toUpperCase();
-    if(src.includes('INFRA') && (src.includes('ROCADE')||src.includes('ROCA'))) return 'infra_rocade';
-    if(src.includes('INFRA')) return 'infra';
-    if(src.includes('ROCADE')||src.includes('ROCA')) return 'rocade';
-    return 'infra';
+  async function load(){
+    if(!supa){ loadLocal(); return render(); }
+    currentUser = await getUser();
+    if(!currentUser){ loadLocal(); return render(); }
+    const { data, error } = await supa.from('suivi').select('*').order('created_at',{ascending:true});
+    if(error){ console.warn(error); loadLocal(); return render(); }
+    rows = (data||[]).map(x=>x.payload);
+    render();
   }
-  function isTravauxRow(r){
-    return String(r['DATES TRAVAUX']||'').trim().length>0 || String(r['OT TRAVAUX']||'').trim().length>0 ||
-           String(r['DATE INFRA']||'').trim().length>0 || String(r['DATE ROCADE']||'').trim().length>0 ||
-           String(r['DATES INFRA']||'').trim().length>0 || String(r['DATES ROCADE']||'').trim().length>0;
-  }
-  function detectLien(r){
-    const direct = (r['LIEN']||r['TYPE LIEN']||'').toString().trim();
-    if(direct) return direct;
-    const inAudit  = (r["TYPE D'AUDIT"]||'').toString().toUpperCase();
-    const inTrav   = (r['TYPE DE TRAVAUX']||'').toString().toUpperCase();
-    if(inAudit.includes('LIEN')||inTrav.includes('LIEN')) return 'FTTO';
-    return '';
-  }
-  function guessVille(nom){
-    if(!nom) return '';
-    let s = String(nom);
-    s = s.replace(/^\s*\d+[\s_\-]*/, '');     // supprime un éventuel code en tête
-    s = s.split(' - ')[0];                    // coupe avant suffixe " - BBG"
-    s = s.replace(/MARIE\s+BLACH[ÈE]RE/gi,'').replace(/MANGEONS\s+FRAIS/gi,'');
-    s = s.replace(/\s{2,}/g,' ').trim();
-    return s.toUpperCase();
+  async function save(){
+    if(!supa || !currentUser){ return saveLocal(); }
+    // stratégie simple: remplace tout
+    await supa.from('suivi').delete().neq('id',0);
+    const inserts = rows.map(r=>({ payload:r }));
+    await supa.from('suivi').insert(inserts);
   }
 
-  // ====== Collage tableau
+  function addEmptyRow(){ const r = { __id: genId(), __meta:{} }; HEADERS.forEach(h => r[h] = ''); rows.unshift(r); render(); }
+
+  // PASTE helpers
   function parseTable(text){
     const hasTab = text.includes('\t');
     const first = text.split('\n')[0]||'';
@@ -147,14 +262,11 @@
     const lines = text.split(/\r?\n/).filter(l=>l.trim().length>0);
     const data = lines.map(line => {
       if(hasTab){ return line.split('\t'); }
-      // CSV simple avec quotes
       const out=[]; let cur=''; let inQ=false;
       for(let i=0;i<line.length;i++){
         const c=line[i];
-        if(c==='"'){
-          if(inQ && line[i+1]==='"'){ cur+='"'; i++; }
-          else inQ=!inQ;
-        } else if(c===sep && !inQ){ out.push(cur); cur=''; }
+        if(c==='"'){ if(inQ && line[i+1]==='"'){ cur+='"'; i++; } else inQ=!inQ; }
+        else if(c===sep && !inQ){ out.push(cur); cur=''; }
         else cur+=c;
       }
       out.push(cur);
@@ -168,12 +280,12 @@
     return matches >= 3;
   }
 
-  // Collage cellule → remplit à partir de la cellule, multi-lignes OK
+  // PASTE in cell
   tbody.addEventListener('paste', (e)=>{
     const cell = e.target.closest('.cell-editable');
     if(!cell) return;
     const text = (e.clipboardData || window.clipboardData).getData('text'); if(!text) return;
-    if(!text.includes('\t') && !text.includes('\n')) return; // laisser le collage simple
+    if(!text.includes('\t') && !text.includes('\n')) return;
     e.preventDefault();
     const table = parseTable(text);
     const startKey = cell.dataset.key;
@@ -183,18 +295,18 @@
     for(let rIdx=0; rIdx<table.length; rIdx++){
       const srcRow = table[rIdx];
       const targetIndex = startRowIndex + rIdx;
-      if(!rows[targetIndex]){ const nr = { __id: genId() }; HEADERS.forEach(h => nr[h] = ''); rows.push(nr); }
+      if(!rows[targetIndex]){ const nr = { __id: genId(), __meta:{} }; HEADERS.forEach(h => nr[h] = ''); rows.push(nr); }
       const tgt = rows[targetIndex];
       for(let c=0; c<srcRow.length && (startCol+c)<HEADERS.length; c++){
         const h = HEADERS[startCol+c]; tgt[h] = (srcRow[c]||'').trim();
       }
     }
-    save(); render();
+    save(); saveLocal(); render();
   });
 
-  // Collage global (Ctrl+A depuis SharePoint → Ctrl+V dans la page)
+  // PASTE global
   document.addEventListener('paste', (e)=>{
-    if(e.target.closest && e.target.closest('.cell-editable')) return; // déjà géré
+    if(e.target.closest && e.target.closest('.cell-editable')) return;
     const text = (e.clipboardData || window.clipboardData).getData('text'); if(!text) return;
     const table = parseTable(text); if(table.length===0) return;
 
@@ -203,23 +315,23 @@
       const head = table[0];
       const idx = HEADERS.map(h => head.findIndex(x => (x||'').toString().trim().toUpperCase()===h));
       rows = table.slice(1).map(src => {
-        const r = { __id: genId() };
+        const r = { __id: genId(), __meta:{} };
         HEADERS.forEach((h,j)=>{ const i = idx[j]; r[h] = i>=0 ? (src[i]||'').trim() : ''; });
         return r;
       });
-      save(); render();
+      save(); saveLocal(); render();
     } else if(table.length>=1 && table[0].length>=3) {
       e.preventDefault();
       for(const src of table){
-        const r = { __id: genId() };
+        const r = { __id: genId(), __meta:{} };
         for(let j=0;j<HEADERS.length && j<src.length;j++){ r[HEADERS[j]] = (src[j]||'').trim(); }
         rows.push(r);
       }
-      save(); render();
+      save(); saveLocal(); render();
     }
   });
 
-  // Édition + focus auto
+  // Inline edit
   tbody.addEventListener('click', (e)=>{
     if(e.target.closest('button')) return;
     const td = e.target.closest('td'); if(!td) return;
@@ -228,86 +340,78 @@
   tbody.addEventListener('input', (e)=>{
     const el = e.target.closest('.cell-editable'); if(!el) return;
     const id = el.dataset.id; const key = el.dataset.key; const row = rows.find(r=>r.__id===id);
-    if(row){ row[key] = el.innerText.trim(); save(); }
+    if(row){ row[key] = el.innerText.trim(); saveLocal(); }
   });
 
-  // ====== Actions ligne
-  tbody.addEventListener('click', (e)=>{
+  // Actions ligne
+  tbody.addEventListener('click', async (e)=>{
     const btn = e.target.closest('button[data-action]'); if(!btn) return;
     const id = btn.dataset.id; const r = rows.find(x=>x.__id===id); if(!r) return;
     const act = btn.dataset.action;
-
     if(act==='dupe'){
-      const copy = JSON.parse(JSON.stringify(r)); copy.__id = genId(); rows.unshift(copy); save(); render();
+      const copy = JSON.parse(JSON.stringify(r)); copy.__id = genId(); rows.unshift(copy); await save(); saveLocal(); render();
     } else if(act==='del'){
-      if(confirm('Supprimer cette ligne ?')){ rows = rows.filter(x=>x.__id!==id); save(); render(); }
+      if(confirm('Supprimer cette ligne ?')){ rows = rows.filter(x=>x.__id!==id); await save(); saveLocal(); render(); }
     } else if(act==='gen'){
-  const isTrav = isTravauxRow(r);
-  const type   = isTrav ? detectTravauxType(r) : (function(){
-    const src = (r["TYPE D'AUDIT"]||'').toString().toUpperCase();
-    const hasBaie = src.includes('BAIE'); const hasLien = src.includes('LIEN');
-    if(hasBaie && hasLien) return 'audit_baie_lien';
-    if(hasBaie) return 'audit_baie';
-    if(hasLien) return 'audit_lien';
-    return 'audit_baie_lien';
-  })();
-
-  const typRaw = (r['TYPOLOGIE']||'').toString().toUpperCase();
-  const typologieForm = typRaw.includes('ISOLE') ? 'SITE ISOLE' : 'SITE MITOYEN';
-
-  const ticketVal = isTrav ? (r['OT TRAVAUX']||'') : (r['OT AUDIT']||'');
-  const dateVal   = (function(){
-    if(isTrav){
-      const dI = (r['DATE INFRA']||r['DATES INFRA']||'').toString().trim();
-      const dR = (r['DATE ROCADE']||r['DATES ROCADE']||'').toString().trim();
-      if(type==='infra_rocade') return dI || dR || (r['DATES TRAVAUX']||'');
-      if(type==='infra')       return dI || (r['DATES TRAVAUX']||'');
-      if(type==='rocade')      return dR || (r['DATES TRAVAUX']||'');
+      const isTrav = (()=>{
+        const t = detectTravauxType(r);
+        return t==='infra' || t==='rocade' || t==='infra_rocade';
+      })();
+      const type   = detectTravauxType(r);
+      const typRaw = (r['TYPOLOGIE']||'').toString().toUpperCase();
+      const typologieForm = typRaw.includes('ISOLE') ? 'SITE ISOLE' : 'SITE MITOYEN';
+      const ticketVal = isTrav ? (r['OT TRAVAUX']||'') : (r['OT AUDIT']||'');
+      const meta = r.__meta||{};
+      let dateVal = meta.dateInter ? toDDMMYYYY(meta.dateInter) : (isTrav ? (r['DATES TRAVAUX']||'') : (r['DATES AUDITS']||''));
+      if(meta.heureInter){ dateVal = dateVal ? `${dateVal} ${meta.heureInter}` : meta.heureInter; }
+      const villeVal = guessVille(r['NOM DU SITE']||'');
+      const lienVal  = detectLien(r);
+      const params = new URLSearchParams({
+        type, ticket: ticketVal, date: dateVal, ville: villeVal,
+        typologie: typologieForm, raison: (r['NOM DU SITE']||''), lien: lienVal,
+        prix: meta.prixVente ? String(meta.prixVente) : ''
+      });
+      const target = new URL('outil_mail.html', location.href);
+      target.search = params.toString();
+      const a = document.createElement('a'); a.href = target.toString(); a.target = '_blank'; a.rel='noopener'; document.body.appendChild(a); a.click(); a.remove();
     }
-    return (r['DATES AUDITS']||'');
-  })();
-
-  function guessVille(nom){
-    if(!nom) return '';
-    let s = String(nom);
-    s = s.replace(/^\s*\d+[\s_\-]*/, '');
-    s = s.split(' - ')[0];
-    s = s.replace(/MARIE\s+BLACH[ÈE]RE/gi,'').replace(/MANGEONS\s+FRAIS/gi,'');
-    s = s.replace(/\s{2,}/g,' ').trim();
-    return s.toUpperCase();
-  }
-  const villeVal = guessVille(r['NOM DU SITE']||'');
-  const lienVal  = detectLien(r);
-
-  const params = new URLSearchParams({
-    type, ticket: ticketVal, date: dateVal, ville: villeVal,
-    typologie: typologieForm, raison: (r['NOM DU SITE']||''), lien: lienVal
   });
 
-  // ➜ Résolution RELATIVE FIABLE depuis le fichier ouvert (même dossier)
-  const target = new URL('outil_mail.html', location.href); // <— assure-toi que le fichier s’appelle bien comme ça
-  target.search = params.toString();
-
-  const w = window.open(target.toString(), '_blank');
-  if (w) { w.opener = null; w.focus(); }
-}
-
-  });
-
-  // ====== Barre d'actions (haut)
+  // Top bar actions
   document.getElementById('importBtn').addEventListener('click', ()=>{
     const txt = prompt('Collez ici les données copiées depuis Excel/SharePoint'); if(!txt) return;
     const table = parseTable(txt); if(!table.length) return;
     if(looksLikeHeader(table[0])){
       const head = table[0]; const idx = HEADERS.map(h => head.findIndex(x => (x||'').toString().trim().toUpperCase()===h));
-      rows = table.slice(1).map(src => { const r = { __id: genId() }; HEADERS.forEach((h,j)=>{ const i = idx[j]; r[h] = i>=0 ? (src[i]||'').trim() : ''; }); return r; });
+      rows = table.slice(1).map(src => { const r = { __id: genId(), __meta:{} }; HEADERS.forEach((h,j)=>{ const i = idx[j]; r[h] = i>=0 ? (src[i]||'').trim() : ''; }); return r; });
     } else {
-      rows = table.map(src => { const r = { __id: genId() }; HEADERS.forEach((h,j)=> r[h] = (src[j]||'').trim()); return r; });
+      rows = table.map(src => { const r = { __id: genId(), __meta:{} }; HEADERS.forEach((h,j)=> r[h] = (src[j]||'').trim()); return r; });
     }
-    save(); render();
+    saveLocal(); save(); render();
   });
-  document.getElementById('addRowBtn').addEventListener('click', addEmptyRow);
-  document.getElementById('saveBtn').addEventListener('click', ()=>{ save(); alert('Données enregistrées localement'); });
+  const pasteBtn = document.getElementById('pasteBtn');
+  const pasteModal = document.getElementById('pasteModal');
+  const pasteArea = document.getElementById('pasteArea');
+  const pasteCancel = document.getElementById('pasteCancel');
+  const pasteApply = document.getElementById('pasteApply');
+  function openPaste(){ pasteArea.value=''; pasteModal.classList.remove('hidden'); pasteModal.classList.add('flex'); pasteArea.focus(); }
+  function closePaste(){ pasteModal.classList.add('hidden'); pasteModal.classList.remove('flex'); }
+  pasteBtn && pasteBtn.addEventListener('click', openPaste);
+  pasteCancel && pasteCancel.addEventListener('click', closePaste);
+  pasteApply && pasteApply.addEventListener('click', ()=>{
+    const txt = pasteArea.value.trim(); if(!txt){ closePaste(); return; }
+    const table = parseTable(txt); if(!table.length){ closePaste(); return; }
+    if(looksLikeHeader(table[0])){
+      const head = table[0]; const idx = HEADERS.map(h => head.findIndex(x => (x||'').toString().trim().toUpperCase()===h));
+      rows = table.slice(1).map(src => { const r = { __id: genId(), __meta:{} }; HEADERS.forEach((h,j)=>{ const i = idx[j]; r[h] = i>=0 ? (src[i]||'').trim() : ''; }); return r; });
+    } else {
+      rows = table.map(src => { const r = { __id: genId(), __meta:{} }; HEADERS.forEach((h,j)=> r[h] = (src[j]||'').trim()); return r; });
+    }
+    saveLocal(); save(); render(); closePaste();
+  });
+
+  document.getElementById('addRowBtn').addEventListener('click', ()=>{ addEmptyRow(); saveLocal(); save(); });
+  document.getElementById('saveBtn').addEventListener('click', async ()=>{ await save(); alert('Données enregistrées.'); });
   document.getElementById('exportBtn').addEventListener('click', ()=>{
     const lines = [HEADERS.join(';')];
     for(const r of rows){
@@ -319,11 +423,20 @@
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a'); a.href = url; a.download = 'suivi_projets.csv'; a.click(); URL.revokeObjectURL(url);
   });
-  document.getElementById('resetBtn').addEventListener('click', ()=>{ if(confirm('Tout effacer ?')){ rows=[]; save(); render(); } });
+  document.getElementById('resetBtn').addEventListener('click', async ()=>{ if(confirm('Tout effacer ?')){ rows=[]; saveLocal(); await save(); render(); } });
 
-  search.addEventListener('input', render);
+  [fTypologie,fTravaux,fStatutTrav].forEach(el=> el && el.addEventListener('change', render));
+  clearFilters && clearFilters.addEventListener('click', ()=>{ fTypologie.value=''; fTravaux.value=''; fStatutTrav.value=''; render(); });
 
-  (function init(){ load(); render(); })();
+  // Auth buttons
+  document.getElementById('loginBtn').addEventListener('click', async ()=>{
+    const email = document.getElementById('emailAuth').value.trim();
+    if(!email) return alert('Entre un email.');
+    await supaLogin(email);
+  });
+  document.getElementById('logoutBtn').addEventListener('click', supaLogout);
+
+  (async function init(){ await load(); render(); })();
 })();
 </script>
 </body>
