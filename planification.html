@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Planification – D4</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.3/dist/umd/supabase.min.js"></script>
+  <style>
+    body,html{height:100%}
+    th{position:sticky;top:0;background:rgba(250,250,250,.95);backdrop-filter:blur(3px)}
+    .table-wrap{height:calc(100vh - 180px);overflow:auto;background:#fff;border-radius:16px;box-shadow:0 1px 6px rgba(0,0,0,.06)}
+    .cell-editable{ display:block; min-width:140px; min-height:24px; padding:6px 8px; border:1px solid #e5e7eb; border-radius:6px; background:#fff; white-space:pre-wrap; }
+    .cell-editable[contenteditable="true"]:focus { outline:2px solid #2563eb33; border-color:#2563eb; }
+    select,input[type="date"],input[type="time"]{border:1px solid #e5e7eb;border-radius:8px;padding:6px;background:#fff}
+    .ok{background:#16a34a;color:#fff;border-radius:8px;padding:6px 10px}
+    .disabled{opacity:.5;pointer-events:none}
+    /* colonnes 1 et 2 sticky */
+    #planTable td:nth-child(1), #planTable th:nth-child(1) { position: sticky; left: 0; z-index: 3; background: #fff; box-shadow: 1px 0 0 #e5e7eb; }
+    #planTable td:nth-child(2), #planTable th:nth-child(2) { position: sticky; left: 160px; z-index: 3; background: #fff; box-shadow: 1px 0 0 #e5e7eb; }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-900">
+  <div class="max-w-full p-3 space-y-3">
+    <header class="flex items-center justify-between flex-wrap gap-2">
+      <nav class="flex items-center gap-2">
+        <a href="table.html" class="px-3 py-1 rounded-xl bg-slate-200 text-slate-900 shadow">Suivi</a>
+        <span class="px-3 py-1 rounded-xl bg-slate-800 text-white shadow">Planification</span>
+        <a href="outil_mail.html" class="px-3 py-1 rounded-xl bg-slate-200 text-slate-900 shadow" target="_blank" rel="noopener">Générateur</a>
+      </nav>
+      <div class="flex gap-2 items-center">
+        <button id="addRowBtn" class="px-3 py-1 rounded-xl bg-slate-700 text-white shadow">Ajouter une ligne</button>
+        <button id="saveBtn" class="px-3 py-1 rounded-xl bg-emerald-600 text-white shadow">Enregistrer</button>
+        <button id="resetBtn" class="px-3 py-1 rounded-xl bg-rose-600 text-white shadow">Réinitialiser</button>
+        <span class="grow"></span>
+        <input id="emailAuth" class="px-2 py-1 border rounded" placeholder="email pour login" />
+        <button id="loginBtn" class="px-3 py-1 rounded-xl bg-blue-600 text-white">Login</button>
+        <button id="logoutBtn" class="px-3 py-1 rounded-xl bg-gray-600 text-white">Logout</button>
+      </div>
+    </header>
+
+    <section class="bg-white rounded-2xl shadow p-2">
+      <input id="search" class="px-3 py-1 rounded-xl border w-full mb-2" placeholder="Recherche (Ticket, Site, Ville, Tech…)" />
+      <p class="text-xs text-slate-500 mt-1">Astuce : clique dans la <b>première cellule</b> d’une ligne puis <b>Ctrl/Cmd+V</b> pour coller un bloc (Excel/SharePoint). Le collage respecte les colonnes et ajoute les lignes nécessaires.</p>
+    </section>
+
+    <section class="table-wrap">
+      <table class="min-w-full text-xs" id="planTable">
+        <thead>
+          <tr>
+            <th class="p-1"># Ticket</th>
+            <th class="p-1">Client</th>
+            <th class="p-1">Références</th>
+            <th class="p-1">Date (brut D4)</th>
+            <th class="p-1">Prestation</th>
+            <th class="p-1">Site</th>
+            <th class="p-1">Contact</th>
+            <th class="p-1">Cp</th>
+            <!-- Ville est optionnelle dans D4 actuel, on la garde si tu veux l’utiliser plus tard -->
+            <th class="p-1">Ville</th>
+
+            <th class="p-1">TECH</th>
+            <th class="p-1">Date inter</th>
+            <th class="p-1">Heure</th>
+            <th class="p-1">Typologie</th>
+            <th class="p-1">Commentaires (type)</th>
+            <th class="p-1">VENTE</th>
+            <th class="p-1">ACHAT</th>
+            <th class="p-1">OKs</th>
+            <th class="p-1">Envoyer</th>
+          </tr>
+        </thead>
+        <tbody id="pbody"></tbody>
+      </table>
+    </section>
+  </div>
+
+<script>
+(function(){
+  // ===== Supabase (optionnel) =====
+  const SUPABASE_URL = "";   // <= mets ton URL Supabase sinon laisse vide
+  const SUPABASE_KEY = "";   // <= mets ta clé anonyme sinon laisse vide
+  const supa = (SUPABASE_URL && SUPABASE_KEY) ? supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
+  let currentUser = null;
+
+  async function supaLogin(email){
+    if(!supa) return alert('Supabase non configuré.');
+    const { error } = await supa.auth.signInWithOtp({ email });
+    if(error){ alert('Login error: '+error.message); return; }
+    alert("Lien magique envoyé. Vérifie ta boîte mail.");
+  }
+  async function supaLogout(){ if(!supa) return; await supa.auth.signOut(); currentUser=null; alert('Déconnecté.'); }
+  async function getUser(){ if(!supa) return null; const { data } = await supa.auth.getUser(); return data.user||null; }
+
+  const STORAGE_PLAN = 'planning_rows_v1';
+  const STORAGE_SUIVI = 'suivi_projets_data_v2';
+
+  // Ordre des colonnes (on peut coller directement dans cet ordre)
+  const HEADERS = [
+    '# Ticket','Client','Références','Date','Prestation','Site','Contact','Cp','Ville',
+    'TECH','DATE_INTER','HEURE_INTER','TYPOLOGIE','COMMENTAIRES','VENTE','ACHAT'
+  ];
+
+  const typesOptions = [
+    'AUDIT – BAIE',
+    'AUDIT – LIEN',
+    'AUDIT – BAIE + LIEN',
+    'TRAVAUX – INFRA',
+    'TRAVAUX – ROCADE',
+    'TRAVAUX – INFRA ET ROCADE'
+  ];
+
+  let rows = [];
+
+  const pbody = document.getElementById('pbody');
+  const search = document.getElementById('search');
+
+  function escapeHtml(s){ return String(s??'').replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;"," >":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
+  function genId(){ return Math.random().toString(36).slice(2)+Date.now().toString(36); }
+  function ddmmyyyy(dstr){ const d=new Date(dstr); if(!isFinite(d)) return ''; const dd=String(d.getDate()).padStart(2,'0'); const mm=String(d.getMonth()+1).padStart(2,'0'); const yy=d.getFullYear(); return `${dd}/${mm}/${yy}`; }
+
+  // Persist local +/ supabase
+  function saveLocal(){ localStorage.setItem(STORAGE_PLAN, JSON.stringify(rows)); }
+  function loadLocal(){ const s = localStorage.getItem(STORAGE_PLAN); if(s){ try{ rows = JSON.parse(s)||[]; }catch{} } }
+  async function load(){
+    if(!supa){ loadLocal(); return render(); }
+    currentUser = await getUser();
+    if(!currentUser){ loadLocal(); return render(); }
+    const { data, error } = await supa.from('planning').select('*').order('created_at',{ascending:true});
+    if(error){ console.warn(error); loadLocal(); return render(); }
+    rows = (data||[]).map(x=>x.payload);
+    render();
+  }
+  async function save(){
+    if(!supa || !currentUser){ return saveLocal(); }
+    await supa.from('planning').delete().neq('id',0);
+    const inserts = rows.map(r=>({ payload:r }));
+    await supa.from('planning').insert(inserts);
+  }
+
+  function addEmptyRow(){
+    const r = { __id: genId() };
+    HEADERS.forEach(h=> r[h]='');
+    // valeurs par défaut utiles
+    r['TYPOLOGIE']='SITE ISOLE';
+    r['COMMENTAIRES']='AUDIT – BAIE + LIEN';
+    rows.unshift(r); render();
+  }
+
+  function render(){
+    const q = (search.value||'').toLowerCase();
+    const data = rows.filter(r => !q || Object.values(r).some(v => String(v??'').toLowerCase().includes(q)));
+    pbody.innerHTML = data.map(r=>{
+      const typeSelect = `<select data-id="${r.__id}" data-field="COMMENTAIRES" class="w-[180px]">
+        ${typesOptions.map(opt=>`<option ${r['COMMENTAIRES']===opt?'selected':''}>${opt}</option>`).join('')}
+      </select>`;
+      const typoSelect = `<select data-id="${r.__id}" data-field="TYPOLOGIE" class="w-[140px]">
+        <option ${r['TYPOLOGIE']==='SITE ISOLE'?'selected':''}>SITE ISOLE</option>
+        <option ${r['TYPOLOGIE']==='SITE MITOYEN'?'selected':''}>SITE MITOYEN</option>
+      </select>`;
+      return `<tr class="border-b">
+        ${['# Ticket','Client','Références','Date','Prestation','Site','Contact','Cp','Ville'].map(h=>`
+          <td class="p-1"><div class="cell-editable" contenteditable="true" data-id="${r.__id}" data-key="${h}">${escapeHtml(r[h]||'')}</div></td>
+        `).join('')}
+        <td class="p-1"><div class="cell-editable" contenteditable="true" data-id="${r.__id}" data-key="TECH">${escapeHtml(r['TECH']||'')}</div><button class="ok mt-1" data-ok="TECH" data-id="${r.__id}">OK</button></td>
+        <td class="p-1"><input type="date" value="${r['DATE_INTER']||''}" data-id="${r.__id}" data-field="DATE_INTER" class="w-[140px]" /><button class="ok mt-1" data-ok="DATE_INTER" data-id="${r.__id}">OK</button></td>
+        <td class="p-1"><input type="time" value="${r['HEURE_INTER']||''}" data-id="${r.__id}" data-field="HEURE_INTER" class="w-[110px]" /><button class="ok mt-1" data-ok="HEURE_INTER" data-id="${r.__id}">OK</button></td>
+        <td class="p-1">${typoSelect}<button class="ok mt-1" data-ok="TYPOLOGIE" data-id="${r.__id}">OK</button></td>
+        <td class="p-1">${typeSelect}<button class="ok mt-1" data-ok="COMMENTAIRES" data-id="${r.__id}">OK</button></td>
+        <td class="p-1"><div class="cell-editable" contenteditable="true" data-id="${r.__id}" data-key="VENTE">${r['VENTE']||''}</div><button class="ok mt-1" data-ok="VENTE" data-id="${r.__id}">OK</button></td>
+        <td class="p-1"><div class="cell-editable" contenteditable="true" data-id="${r.__id}" data-key="ACHAT">${r['ACHAT']||''}</div><button class="ok mt-1" data-ok="ACHAT" data-id="${r.__id}">OK</button></td>
+        <td class="p-1 text-[10px] leading-4">
+          <div>TECH: ${r.okTECH?'✅':'⏺️'}</div>
+          <div>Date: ${r.okDATE_INTER?'✅':'⏺️'}</div>
+          <div>Heure: ${r.okHEURE_INTER?'✅':'⏺️'}</div>
+          <div>Typo: ${r.okTYPOLOGIE?'✅':'⏺️'}</div>
+          <div>Type: ${r.okCOMMENTAIRES?'✅':'⏺️'}</div>
+          <div>VENTE: ${r.okVENTE?'✅':'⏺️'}</div>
+          <div>ACHAT: ${r.okACHAT?'✅':'⏺️'}</div>
+        </td>
+        <td class="p-1">
+          <button class="px-2 py-1 rounded bg-blue-600 text-white ${(r.okTECH&&r.okDATE_INTER&&r.okCOMMENTAIRES&&r.okVENTE)?'':'disabled'}" data-send="${r.__id}">Envoyer</button>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  // ======= Collage type Excel directement dans les cellules =======
+  /**
+   * parseGrid : parse un texte de collage (Excel/CSV/TSV) en tableau 2D
+   * - autodétecte le séparateur: tabulation (\t) sinon ';' sinon ','
+   * - gère les champs entre guillemets "..." contenant des délimiteurs et des retours ligne
+   * - gère les guillemets doublés "" => "
+   */
+  function parseGrid(text){
+    const sep = text.includes('\t') ? '\t' : (text.split('\n')[0].includes(';') ? ';' : ',');
+    const rows = [];
+    let cur = ''; let row = []; let inQ = false;
+    for(let i=0;i<text.length;i++){
+      const c = text[i];
+      if(c === '"'){
+        if(inQ && text[i+1] === '"'){ cur += '"'; i++; } // "" => "
+        else { inQ = !inQ; }
+      } else if(c === sep && !inQ){
+        row.push(cur); cur = '';
+      } else if((c === '\n' || c === '\r') && !inQ){
+        // fin de ligne (support \r\n)
+        if(c === '\r' && text[i+1] === '\n') i++;
+        row.push(cur); rows.push(row);
+        row = []; cur = '';
+      } else {
+        cur += c;
+      }
+    }
+    // fin
+    if(cur.length>0 || row.length>0){ row.push(cur); rows.push(row); }
+    // nettoyage: trim chaque cellule
+    return rows.map(r => r.map(x => (x||'').trim()));
+  }
+
+  // PASTE dans une cellule : à partir de la cellule courante, rempli colonnes puis lignes
+  pbody.addEventListener('paste', (e)=>{
+    const cell = e.target.closest('.cell-editable');
+    if(!cell) return; // ne gère que le collage dans les cellules texte
+    const text = (e.clipboardData || window.clipboardData).getData('text');
+    if(!text) return;
+
+    // si c'est un collage simple (pas tab, pas newline) -> laisser le navigateur gérer
+    if(!text.includes('\t') && !text.includes('\n') && !text.includes(';') && !text.includes(',')) return;
+
+    e.preventDefault();
+    const table = parseGrid(text);
+    if(table.length===0) return;
+
+    const startKey = cell.dataset.key;
+    const startId  = cell.dataset.id;
+    const startCol = HEADERS.indexOf(startKey);
+    const startRowIndex = rows.findIndex(r => r.__id===startId);
+
+    for(let rIdx=0; rIdx<table.length; rIdx++){
+      const srcRow = table[rIdx];
+      const targetIndex = startRowIndex + rIdx;
+      if(!rows[targetIndex]){ // créer des lignes si besoin
+        const nr = { __id: genId() };
+        HEADERS.forEach(h => nr[h] = '');
+        // valeurs par défaut utiles
+        nr['TYPOLOGIE']='SITE ISOLE';
+        nr['COMMENTAIRES']='AUDIT – BAIE + LIEN';
+        rows.push(nr);
+      }
+      const tgt = rows[targetIndex];
+      for(let c=0; c<srcRow.length && (startCol+c)<HEADERS.length; c++){
+        const h = HEADERS[startCol+c];
+        tgt[h] = srcRow[c];
+      }
+    }
+    saveLocal(); render();
+  });
+
+  // ===== édition / UI =====
+  pbody.addEventListener('input', (e)=>{
+    const el = e.target.closest('.cell-editable'); if(!el) return;
+    const id = el.dataset.id; const key = el.dataset.key; const r = rows.find(x=>x.__id===id);
+    if(r){ r[key] = el.innerText.trim(); saveLocal(); }
+  });
+
+  pbody.addEventListener('change', (e)=>{
+    const id = e.target.dataset.id; const field = e.target.dataset.field;
+    if(!id || !field) return;
+    const r = rows.find(x=>x.__id===id); if(!r) return;
+    r[field] = e.target.value; saveLocal();
+  });
+
+  // OK + Envoyer -> pousse vers table.html (localStorage)
+  pbody.addEventListener('click', (e)=>{
+    const ok = e.target.closest('button[data-ok]');
+    if(ok){
+      const id = ok.dataset.id; const field = ok.dataset.ok;
+      const r = rows.find(x=>x.__id===id); if(!r) return;
+      r['ok'+field] = true; saveLocal(); render(); return;
+    }
+    const send = e.target.closest('button[data-send]');
+    if(send){
+      const id = send.dataset.send; const r = rows.find(x=>x.__id===id); if(!r) return;
+      const suivi = JSON.parse(localStorage.getItem(STORAGE_SUIVI)||'[]');
+
+      // OT = premier 8 chiffres commençant par 1 dans Références (même s'il y a un 2e numéro en dessous)
+      const ref = (r['Références']||'').replace(/\s+/g,' ');
+      const m = ref.match(/\b1\d{7}\b/);
+      const ot = m ? m[0] : '';
+
+      // mapping type depuis Commentaires
+      const t = (r['COMMENTAIRES']||'').toUpperCase();
+      const isAudit = t.includes('AUDIT');
+      let typeTrav=''; let typeAudit='';
+      if(isAudit){
+        if(t.includes('BAIE') && t.includes('LIEN')) typeAudit='BAIE + LIEN';
+        else if(t.includes('BAIE')) typeAudit='BAIE';
+        else if(t.includes('LIEN')) typeAudit='LIEN';
+        else typeAudit='BAIE + LIEN';
+      } else {
+        if(t.includes('INFRA') && t.includes('ROCADE')) typeTrav='INFRA ET ROCADE';
+        else if(t.includes('INFRA')) typeTrav='INFRA';
+        else if(t.includes('ROCADE')||t.includes('LIEN')) typeTrav='ROCADE';
+      }
+
+      const row = {
+        __id: (Math.random().toString(36).slice(2)+Date.now().toString(36)),
+        __meta: {
+          tech: r['TECH']||'',
+          dateInter: r['DATE_INTER']||'',
+          heureInter: r['HEURE_INTER']||'',
+          prixVente: r['VENTE']||'',
+          prixAchat: r['ACHAT']||''
+        },
+        'CODE SITE':'',
+        'NOM DU SITE': r['Site']||'',
+        'OT AUDIT': isAudit ? ot : '',
+        'TYPOLOGIE': (r['TYPOLOGIE']||'').toUpperCase() || 'SITE ISOLE',
+        "TYPE D'AUDIT": isAudit ? (typeAudit||'BAIE + LIEN') : '',
+        'DATES AUDITS': isAudit ? ddmmyyyy(r['DATE_INTER']) : '',
+        'STATUT':'',
+        'CR REALISES':'',
+        'CHIFFRAGES':'',
+        'OT TRAVAUX': !isAudit ? ot : '',
+        'DATES TRAVAUX': !isAudit ? ddmmyyyy(r['DATE_INTER']) : '',
+        'TYPE DE TRAVAUX': !isAudit ? (typeTrav||'') : '',
+        'STATUT TRAVAUX':'',
+        'CR REALISES2':'',
+        'COMMENTAIRES': r['COMMENTAIRES']||'',
+        'DATE INFRA':'','DATES INFRA':'','DATE ROCADE':'','DATES ROCADE':'',
+        'LIEN': (r['Prestation']||'').toUpperCase().includes('LIEN') ? 'FTTO' : '',
+        'TYPE LIEN':''
+      };
+
+      suivi.push(row);
+      localStorage.setItem(STORAGE_SUIVI, JSON.stringify(suivi));
+      alert('Envoyé dans le tableau (Suivi).');
+    }
+  });
+
+  // Boutons top
+  document.getElementById('addRowBtn').addEventListener('click', ()=>{ addEmptyRow(); saveLocal(); });
+  document.getElementById('saveBtn').addEventListener('click', async ()=>{ await save(); alert('Planification enregistrée.'); });
+  document.getElementById('resetBtn').addEventListener('click', async ()=>{ if(confirm('Tout effacer ?')){ rows=[]; saveLocal(); await save(); render(); }});
+  search.addEventListener('input', render);
+
+  // Auth
+  document.getElementById('loginBtn').addEventListener('click', async ()=>{
+    const email = document.getElementById('emailAuth').value.trim();
+    if(!email) return alert('Entre un email.');
+    await supaLogin(email);
+  });
+  document.getElementById('logoutBtn').addEventListener('click', supaLogout);
+
+  (async function init(){ await load(); render(); })();
+})();
+</script>
+</body>
+</html>
